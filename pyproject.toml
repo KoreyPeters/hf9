@@ -24,3 +24,7 @@ dev = [
     "pytest-django>=4.12.0",
     "ruff>=0.15.14",
 ]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "hf.settings.dev"
+python_files = ["tests.py", "test_*.py"]
