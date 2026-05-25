@@ -1,3 +1,5 @@
-from django.urls import URLPattern
+from django.urls import path
 
-urlpatterns: list[URLPattern] = []
+app_name = "spendium"
+
+urlpatterns: list = []
