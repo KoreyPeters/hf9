@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Category, Criterion, CriterionAnswer, SurveyResponse
+from .models import Category, Criterion, CriterionAnswer, SurveyConfig, SurveyResponse
 
 
 class CriterionInline(admin.TabularInline):
@@ -28,5 +28,21 @@ class CriterionAnswerInline(admin.TabularInline):
 
 @admin.register(SurveyResponse)
 class SurveyResponseAdmin(admin.ModelAdmin):
-    list_display = ("player", "content_type", "object_id", "submitted_at")
+    list_display = ("player", "content_type", "object_id", "created_at", "submitted_at")
     inlines = [CriterionAnswerInline]
+
+
+@admin.register(SurveyConfig)
+class SurveyConfigAdmin(admin.ModelAdmin):
+    list_display = [
+        "cooldown_days",
+        "survey_points_first",
+        "survey_points_second",
+        "survey_points_subsequent",
+    ]
+
+    def has_add_permission(self, request) -> bool:
+        return not SurveyConfig.objects.exists()
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False
