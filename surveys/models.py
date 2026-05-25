@@ -2,6 +2,7 @@ from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
+from django.utils import timezone
 
 
 class Category(models.Model):
@@ -37,7 +38,8 @@ class SurveyResponse(models.Model):
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     object_id = models.PositiveIntegerField()
     subject = GenericForeignKey("content_type", "object_id")
-    submitted_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    submitted_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         indexes = [models.Index(fields=["content_type", "object_id"])]
@@ -49,3 +51,26 @@ class CriterionAnswer(models.Model):
     )
     criterion = models.ForeignKey(Criterion, on_delete=models.PROTECT, related_name="answers")
     answer = models.BooleanField()
+
+
+class SurveyConfig(models.Model):
+    cooldown_days = models.PositiveIntegerField(
+        default=30,
+        help_text="Minimum days a player must wait before re-surveying a subject.",
+    )
+    survey_points_first = models.PositiveIntegerField(default=100)
+    survey_points_second = models.PositiveIntegerField(default=50)
+    survey_points_subsequent = models.PositiveIntegerField(default=25)
+
+    class Meta:
+        verbose_name = "Survey configuration"
+        verbose_name_plural = "Survey configuration"
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get(cls) -> "SurveyConfig":
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
