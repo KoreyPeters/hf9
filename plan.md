@@ -489,7 +489,7 @@ def account_is_mature(player):
     Required for protected actions: duplicate flagging, office history edits.
     """
     cfg = settings.LIFECYCLE
-    age_ok = (timezone.now() - player.created_at).days >= cfg['MATURITY_ACCOUNT_AGE_DAYS']
+    age_ok = (timezone.now() - player.date_joined).days >= cfg['MATURITY_ACCOUNT_AGE_DAYS']
     surveys_ok = player.survey_responses.count() >= cfg['MATURITY_SURVEY_COUNT']
     return age_ok and surveys_ok
 ```
@@ -498,19 +498,32 @@ def account_is_mature(player):
 
 ## Phase 3 — Accounts App
 
+> **IMPORTANT — do this before any `migrate` is run.**
+> Django requires a custom user model to be in place before the first migration. Swapping the user model after migrations have been applied requires wiping the database. Set `AUTH_USER_MODEL` in this phase; do not run `python manage.py migrate` until it is done.
+
+### 3.0 — AUTH_USER_MODEL setting
+
+Add `AUTH_USER_MODEL = 'accounts.Player'` to `hf/settings/base.py` before running any migrations. `Player` is the auth user model — there is no separate `User` stub.
+
+Any FK to the user in other models must use `settings.AUTH_USER_MODEL` as a string, not import `Player` directly.
+
+### 3.1 — Player and Membership models
+
+`Player` extends both `SqidMixin` and `AbstractUser`, making it the single auth + game model. `AbstractUser` already provides `username`, `email`, `password`, `date_joined`, `last_login`, `is_active`, `groups`, and `user_permissions` — no need to redefine them. `date_joined` replaces the previously planned `created_at` field; `maturity.py` and any maturity-related fixtures use `date_joined`.
+
+`request.user` in any view is directly a `Player` — no `.player` attribute hop needed.
+
 ```python
 # accounts/models.py
-from django.db import models
-from django.contrib.auth.models import User
+from django.contrib.auth.models import AbstractUser
 from django.conf import settings
+from django.db import models
 from sqids import Sqids
 from core.models import SqidMixin
 
 
-class Player(SqidMixin, models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='player')
+class Player(SqidMixin, AbstractUser):
     total_points = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    created_at = models.DateTimeField(auto_now_add=True)
 
     def generate_sqid(self):
         sqids = Sqids(alphabet=settings.SQID_SALTS['player'])
@@ -520,7 +533,7 @@ class Player(SqidMixin, models.Model):
         indexes = [models.Index(fields=['total_points'])]
 
     def __str__(self):
-        return self.user.username
+        return self.username
 
 
 class Membership(models.Model):
@@ -1544,7 +1557,7 @@ def mature_player(db, player):
     from django.utils import timezone
     from datetime import timedelta
     Player.objects.filter(pk=player.pk).update(
-        created_at=timezone.now() - timedelta(days=8)
+        date_joined=timezone.now() - timedelta(days=8)
     )
     player.refresh_from_db()
     return player
