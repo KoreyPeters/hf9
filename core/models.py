@@ -6,7 +6,7 @@ from sqids import Sqids
 
 
 class SqidMixin(models.Model):
-    sqid = models.CharField(max_length=20, unique=True, blank=True, db_index=True)
+    sqid = models.CharField(max_length=20, unique=True, null=True, blank=True, db_index=True, default=None)
 
     def generate_sqid(self) -> str:
         raise NotImplementedError(
