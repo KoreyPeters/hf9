@@ -1,5 +1,9 @@
 from django.urls import path
 
+from . import views
+
 app_name = "spendium"
 
-urlpatterns: list = []
+urlpatterns = [
+    path("notify/", views.notify, name="notify"),
+]

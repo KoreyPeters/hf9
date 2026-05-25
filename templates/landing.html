@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Human Flourishing — Rate. Act. Earn.{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/landing.css' %}" xmlns:data-on="http://www.w3.org/1999/xhtml"
+      xmlns:data-on="http://www.w3.org/1999/xhtml" xmlns:data-on="http://www.w3.org/1999/xhtml"
+      xmlns:data-on="http://www.w3.org/1999/xhtml" xmlns:data-on="http://www.w3.org/1999/xhtml">
+{% endblock %}
+
+{% block content %}
+
+<section class="hero">
+    <div class="container">
+        <h1>Rate the ethics of the brands you buy from and the politicians you vote for. Earn points. Build a better
+            commons.</h1>
+        <p>Human Flourishing is a real-world game that rewards ethical behaviour and holds corporations and politicians
+            accountable — together.</p>
+        <a href="{% url 'accounts:signup' %}" class="btn-primary">Start playing — it's free</a>
+    </div>
+</section>
+
+<section class="how-it-works">
+    <div class="container">
+        <h2>How it works</h2>
+        <div class="steps">
+            <div class="step">
+                <div class="step-number">1</div>
+                <h3>Survey</h3>
+                <p>Rate a politician or brand against ethical criteria. Anyone can contribute. Every response shapes the
+                    rating.</p>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <h3>Rate</h3>
+                <p>Ratings update in real time from community input. The more people survey, the more accurate the
+                    picture.</p>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <h3>Act</h3>
+                <p>Vote for the highest-rated candidates. Shop at the most ethical brands. Earn points for every
+                    action.</p>
+            </div>
+        </div>
+        <p class="steps-note">You can start anywhere. Browse ratings without an account. Survey a candidate you already
+            know. The game meets you where you are.</p>
+    </div>
+</section>
+
+<section class="games">
+    <div class="container">
+        <h2>The games</h2>
+        <div class="game-cards">
+
+            <div class="game-card">
+                <span class="game-label">Live now</span>
+                <h3>Polium — The Voting Game</h3>
+                <p>Rate politicians against ethical criteria. Declare your vote. Earn points. Hold elected officials
+                    accountable for the commitments they made.</p>
+                <a href="{% url 'accounts:signup' %}" class="btn-primary">Play now — it's free</a>
+            </div>
+
+            <div class="game-card">
+                <span class="game-label coming-soon">Coming soon</span>
+                <h3>Spendium — The Purchasing Game</h3>
+                <p>Rate brands and products against ethical criteria. Shop ethically. Earn points proportional to the
+                    store's ethics rating.</p>
+                <form id="notify-form" class="notify-form" data-on-submit="@post('{% url 'spendium:notify' %}', {contentType: 'form'})">
+                    <input type="email"
+                           name="email"
+                           required
+                           placeholder="your@email.com"
+                           aria-label="Email address for Spendium launch notification">
+                    <button type="submit" class="btn-primary">Notify me when it launches</button>
+                </form>
+            </div>
+
+        </div>
+    </div>
+</section>
+
+<section class="why">
+    <div class="container">
+        <h2>Why it matters</h2>
+        <p>Most of us want to do the right thing. The problem is that self-interest is a powerful force — in
+            individuals, in corporations, and in governments. The tragedy of the commons happens when everyone acting in
+            their own interest destroys something we all share.</p>
+        <p>Human Flourishing is designed to defeat that tendency. By rewarding ethical behaviour with points, creating
+            transparent ratings that anyone can contribute to, and building an arms race among corporations and
+            politicians to compete on ethical grounds, we change the incentives.</p>
+        <p>This is not a charity. It is a game with real-world consequences — for the brands you buy from, for the
+            politicians you vote for, and for the commons we all share.</p>
+        <a href="/about/" class="link-secondary">Learn more about Human Flourishing →</a>
+    </div>
+</section>
+
+<section class="social-proof">
+    <div class="container">
+        <blockquote>
+            "What we have ignored is what citizens can do and the importance of real involvement of the people
+            involved."
+            <footer>— Elinor Ostrom, Nobel Laureate in Economics, 2009</footer>
+        </blockquote>
+    </div>
+</section>
+
+<section class="join">
+    <div class="container">
+        <h2>Start playing — it's free</h2>
+        <div class="join-links">
+            <a href="{% url 'accounts:signup' %}" class="btn-primary">Start playing</a>
+            <a href="/about/" class="link-secondary">Learn more about Human Flourishing →</a>
+        </div>
+    </div>
+</section>
+
+{% endblock %}

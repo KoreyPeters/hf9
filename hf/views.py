@@ -1,4 +1,9 @@
-from django.http import HttpRequest, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.shortcuts import render
+
+
+def landing(request: HttpRequest) -> HttpResponse:
+    return render(request, "landing.html")
 
 
 def manifest(request: HttpRequest) -> JsonResponse:
