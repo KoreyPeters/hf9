@@ -6,6 +6,10 @@ def landing(request: HttpRequest) -> HttpResponse:
     return render(request, "landing.html")
 
 
+def about(request: HttpRequest) -> HttpResponse:
+    return render(request, "about.html")
+
+
 def manifest(request: HttpRequest) -> JsonResponse:
     return JsonResponse({
         "name": "Human Flourishing",
