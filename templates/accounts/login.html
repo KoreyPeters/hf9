@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Log in — Human Flourishing{% endblock %}
+{% block content %}
+<main style="max-width:480px;margin:4rem auto;padding:0 1.5rem;font-family:system-ui,sans-serif">
+  <h1 style="font-family:Georgia,serif;font-weight:normal;margin-bottom:2rem">Log in</h1>
+
+  <div style="display:flex;flex-direction:column;gap:1rem">
+    <a href="{% url 'socialaccount_login' 'google' %}" style="display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;border:1px solid #ddd;border-radius:6px;text-decoration:none;color:#111;background:#fff">
+      <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z"/></svg>
+      Continue with Google
+    </a>
+
+    <a href="{% url 'socialaccount_login' 'apple' %}" style="display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;border:1px solid #ddd;border-radius:6px;text-decoration:none;color:#fff;background:#000">
+      <svg width="18" height="18" viewBox="0 0 814 1000" fill="white"><path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76 0-103.7 40.8-165.9 40.8s-105-37.5-140.4-81.2c-33-44.5-79.7-131.7-79.7-238.7 0-173.8 113.4-265.8 224.8-265.8 59.1 0 108.2 38.8 145.4 38.8 35.7 0 91.4-41.1 157.2-41.1 25.1 0 108.2 1.9 164 96.2zm-234.4-181.2c28.1-36.4 48.5-87.5 48.5-138.6 0-7.1-.6-14.3-1.9-20.1-45.9 1.7-99.6 30.8-132.4 72.5-24.7 30.8-48.7 83.2-48.7 135.1 0 7.7 1.3 15.4 1.9 17.9 3.2.6 8.4 1.3 13.5 1.3 40.8 0 91.3-27.5 119.1-68.1z"/></svg>
+      Sign in with Apple
+    </a>
+
+    <hr style="border:none;border-top:1px solid #eee;margin:.5rem 0">
+
+    <a href="{% url 'accounts:magic_link_request' %}" style="display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;border:1px solid #ddd;border-radius:6px;text-decoration:none;color:#111;background:#fafafa">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 7 10-7"/></svg>
+      Email magic link
+    </a>
+
+    <button id="passkey-btn" type="button" style="display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;border:1px solid #ddd;border-radius:6px;cursor:pointer;background:#fafafa;font-size:1rem" onclick="passkeyLogin()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="5"/><path d="m14.5 2.5 7 7M16 4l4 4M13 21l4-8 4 8"/></svg>
+      Use a passkey
+    </button>
+  </div>
+
+  <p style="margin-top:2rem;font-size:.9rem;color:#666">
+    Don't have an account? <a href="{% url 'accounts:signup' %}">Sign up</a>
+  </p>
+</main>
+
+<script>
+async function passkeyLogin() {
+  const emailInput = prompt("Enter your email to find your passkey:");
+  if (!emailInput) return;
+  try {
+    const optResp = await fetch("{% url 'accounts:passkey_auth_options' %}", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-CSRFToken": "{{ csrf_token }}"},
+      body: JSON.stringify({email: emailInput}),
+    });
+    if (!optResp.ok) { alert((await optResp.json()).error); return; }
+    const options = await optResp.json();
+    options.challenge = Uint8Array.from(atob(options.challenge.replace(/-/g,"+").replace(/_/g,"/")), c => c.charCodeAt(0));
+    if (options.allowCredentials) {
+      options.allowCredentials = options.allowCredentials.map(c => ({
+        ...c, id: Uint8Array.from(atob(c.id.replace(/-/g,"+").replace(/_/g,"/")), x => x.charCodeAt(0))
+      }));
+    }
+    const credential = await navigator.credentials.get({publicKey: options});
+    const credJson = {
+      id: credential.id,
+      rawId: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))),
+      type: credential.type,
+      response: {
+        clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(credential.response.clientDataJSON))),
+        authenticatorData: btoa(String.fromCharCode(...new Uint8Array(credential.response.authenticatorData))),
+        signature: btoa(String.fromCharCode(...new Uint8Array(credential.response.signature))),
+        userHandle: credential.response.userHandle ? btoa(String.fromCharCode(...new Uint8Array(credential.response.userHandle))) : null,
+      },
+    };
+    const verResp = await fetch("{% url 'accounts:passkey_auth_verify' %}", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(credJson),
+    });
+    const result = await verResp.json();
+    if (result.ok) { window.location.href = result.redirect; }
+    else { alert(result.error); }
+  } catch (err) {
+    if (err.name !== "NotAllowedError") alert("Passkey error: " + err.message);
+  }
+}
+</script>
+{% endblock %}
