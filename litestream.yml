@@ -1,0 +1,6 @@
+dbs:
+  - path: /data/db.sqlite3
+    replicas:
+      - type: gcs
+        bucket: ${LITESTREAM_GCS_BUCKET}
+        path: hf/db
