@@ -1,10 +1,12 @@
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 
 from accounts.models import Player
+from points.models import PointTransaction
 from surveys.models import Category, Criterion, CriterionAnswer, SurveyConfig, SurveyResponse
 from surveys.ratings import compute_rating
 from surveys.service import CoolDownError, check_cooldown, submit_survey
@@ -187,3 +189,123 @@ def test_cooldown_respects_config_value(
     )
     response = submit_survey(player, candidate, {criterion.pk: False})
     assert response is not None
+
+
+# ── Survey points ─────────────────────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_first_survey_awards_100_points(
+    player: Player, candidate, criterion: Criterion, survey_config: SurveyConfig
+) -> None:
+    submit_survey(player, candidate, {criterion.pk: True})
+    tx = PointTransaction.objects.get(player=player)
+    assert tx.amount == Decimal(str(survey_config.survey_points_first))
+    assert tx.reason == "survey"
+
+
+@pytest.mark.django_db
+def test_second_survey_awards_50_points(
+    player: Player, candidate, criterion: Criterion, survey_config: SurveyConfig
+) -> None:
+    submit_survey(player, candidate, {criterion.pk: True})
+    SurveyResponse.objects.filter(player=player).update(
+        submitted_at=timezone.now() - timedelta(days=31)
+    )
+    submit_survey(player, candidate, {criterion.pk: False})
+    amounts = list(
+        PointTransaction.objects.filter(player=player).order_by("created_at").values_list("amount", flat=True)
+    )
+    assert amounts[0] == Decimal(str(survey_config.survey_points_first))
+    assert amounts[1] == Decimal(str(survey_config.survey_points_second))
+
+
+@pytest.mark.django_db
+def test_third_survey_awards_25_points(
+    player: Player, candidate, criterion: Criterion, survey_config: SurveyConfig
+) -> None:
+    submit_survey(player, candidate, {criterion.pk: True})
+    SurveyResponse.objects.filter(player=player).update(
+        submitted_at=timezone.now() - timedelta(days=31)
+    )
+    submit_survey(player, candidate, {criterion.pk: False})
+    SurveyResponse.objects.filter(player=player).update(
+        submitted_at=timezone.now() - timedelta(days=31)
+    )
+    submit_survey(player, candidate, {criterion.pk: True})
+    amounts = list(
+        PointTransaction.objects.filter(player=player).order_by("created_at").values_list("amount", flat=True)
+    )
+    assert amounts[2] == Decimal(str(survey_config.survey_points_subsequent))
+
+
+@pytest.mark.django_db
+def test_subsequent_surveys_all_award_25_points(
+    player: Player, candidate, criterion: Criterion, survey_config: SurveyConfig
+) -> None:
+    for _ in range(5):
+        submit_survey(player, candidate, {criterion.pk: True})
+        SurveyResponse.objects.filter(player=player).update(
+            submitted_at=timezone.now() - timedelta(days=31)
+        )
+    amounts = list(
+        PointTransaction.objects.filter(player=player).order_by("created_at").values_list("amount", flat=True)
+    )
+    assert all(a == Decimal(str(survey_config.survey_points_subsequent)) for a in amounts[2:])
+
+
+@pytest.mark.django_db
+def test_submit_count_increments_on_resubmit(
+    player: Player, candidate, criterion: Criterion, survey_config: SurveyConfig
+) -> None:
+    submit_survey(player, candidate, {criterion.pk: True})
+    r = SurveyResponse.objects.get(player=player)
+    assert r.submit_count == 1
+
+    SurveyResponse.objects.filter(player=player).update(
+        submitted_at=timezone.now() - timedelta(days=31)
+    )
+    submit_survey(player, candidate, {criterion.pk: False})
+    r.refresh_from_db()
+    assert r.submit_count == 2
+
+
+@pytest.mark.django_db
+def test_points_not_awarded_to_unverified_player(
+    candidate, criterion: Criterion, survey_config: SurveyConfig, db: None
+) -> None:
+    unverified = Player.objects.create_user(
+        username="unverified", email="unverified@example.com", password=None
+    )
+    assert not unverified.email_verified
+    submit_survey(unverified, candidate, {criterion.pk: True})
+    assert PointTransaction.objects.filter(player=unverified).count() == 0
+
+
+@pytest.mark.django_db
+def test_points_source_is_survey_response(
+    player: Player, candidate, criterion: Criterion, survey_config: SurveyConfig
+) -> None:
+    response = submit_survey(player, candidate, {criterion.pk: True})
+    tx = PointTransaction.objects.get(player=player)
+    assert tx.object_id == response.pk
+    assert tx.content_type == ContentType.objects.get_for_model(SurveyResponse)
+
+
+@pytest.mark.django_db
+def test_cooldown_error_does_not_award_points(
+    player: Player, candidate, criterion: Criterion, survey_config: SurveyConfig
+) -> None:
+    submit_survey(player, candidate, {criterion.pk: True})
+    with pytest.raises(CoolDownError):
+        submit_survey(player, candidate, {criterion.pk: False})
+    assert PointTransaction.objects.filter(player=player).count() == 1
+
+
+@pytest.mark.django_db
+def test_config_values_used_for_points(
+    player: Player, candidate, criterion: Criterion, db: None
+) -> None:
+    SurveyConfig.objects.create(pk=1, cooldown_days=0, survey_points_first=200)
+    submit_survey(player, candidate, {criterion.pk: True})
+    tx = PointTransaction.objects.get(player=player)
+    assert tx.amount == Decimal("200")

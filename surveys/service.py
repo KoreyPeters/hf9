@@ -5,6 +5,8 @@ from django.db import transaction
 from django.db.models import Model
 from django.utils import timezone
 
+from points.service import award_points
+
 from .models import CriterionAnswer, SurveyConfig, SurveyResponse
 
 
@@ -63,12 +65,17 @@ def submit_survey(
     if remaining is not None:
         raise CoolDownError(remaining)
 
+    config = SurveyConfig.get()
+
     if existing is not None:
+        new_count = existing.submit_count + 1
         existing.answers.all().delete()
         existing.submitted_at = timezone.now()
-        existing.save(update_fields=["submitted_at"])
+        existing.submit_count = new_count
+        existing.save(update_fields=["submitted_at", "submit_count"])
         response = existing
     else:
+        new_count = 1
         response = SurveyResponse.objects.create(
             player=player,
             content_type=ct,
@@ -79,4 +86,14 @@ def submit_survey(
         CriterionAnswer(survey_response=response, criterion_id=cid, answer=val)
         for cid, val in answers.items()
     ])
+
+    if new_count == 1:
+        amount = config.survey_points_first
+    elif new_count == 2:
+        amount = config.survey_points_second
+    else:
+        amount = config.survey_points_subsequent
+
+    award_points(player, amount, "survey", source=response)
+
     return response
