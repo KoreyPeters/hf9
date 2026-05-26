@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Check your inbox — Human Flourishing{% endblock %}
+{% block content %}
+<main style="max-width:480px;margin:4rem auto;padding:0 1.5rem;font-family:system-ui,sans-serif;text-align:center">
+  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="1.5" style="margin-bottom:1rem"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 7 10-7"/></svg>
+  <h1 style="font-family:Georgia,serif;font-weight:normal;margin-bottom:.5rem">Check your inbox</h1>
+  <p style="color:#555">We sent a login link to <strong>{{ email }}</strong>.<br>It expires in 15 minutes.</p>
+  <p style="margin-top:1.5rem;font-size:.9rem;color:#888">Didn't receive it? Check your spam folder or
+    <a href="{% url 'accounts:magic_link_request' %}">request another link</a>.
+  </p>
+</main>
+{% endblock %}

@@ -10,7 +10,10 @@ from surveys.models import SurveyResponse
 
 @pytest.fixture
 def player(db: None) -> Player:
-    return Player.objects.create_user(username="testplayer", password="pass")
+    p = Player.objects.create_user(username="testplayer", email="testplayer@example.com", password="pass")
+    Player.objects.filter(pk=p.pk).update(email_verified=True)
+    p.refresh_from_db()
+    return p
 
 
 @pytest.fixture

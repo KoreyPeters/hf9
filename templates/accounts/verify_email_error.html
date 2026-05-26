@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Verification failed — Human Flourishing{% endblock %}
+{% block content %}
+<main style="max-width:480px;margin:4rem auto;padding:0 1.5rem;font-family:system-ui,sans-serif;text-align:center">
+  <h1 style="font-family:Georgia,serif;font-weight:normal;margin-bottom:.5rem">Verification failed</h1>
+  <p style="color:#555">{{ error }}</p>
+  <p style="margin-top:1rem;font-size:.9rem;color:#888">
+    If your link expired, <a href="{% url 'accounts:login' %}">log in again</a> and we'll send a new verification email.
+  </p>
+</main>
+{% endblock %}

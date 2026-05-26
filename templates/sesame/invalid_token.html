@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Login link invalid — Human Flourishing{% endblock %}
+{% block content %}
+<main style="max-width:480px;margin:4rem auto;padding:0 1.5rem;font-family:system-ui,sans-serif;text-align:center">
+  <h1 style="font-family:Georgia,serif;font-weight:normal;margin-bottom:.5rem">Login link invalid</h1>
+  <p style="color:#555">This login link is invalid or has already been used. Magic links expire after 15 minutes and can only be used once.</p>
+  <a href="{% url 'accounts:magic_link_request' %}" style="display:inline-block;margin-top:1.5rem;padding:.65rem 1.25rem;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none">
+    Request a new link
+  </a>
+</main>
+{% endblock %}

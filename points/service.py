@@ -20,6 +20,8 @@ def award_points(
     reason: str,
     source: Model | None = None,
 ) -> None:
+    if not player.email_verified:
+        return
     with atomic():
         PointTransaction.objects.create(
             player=player,
