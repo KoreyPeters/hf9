@@ -1,6 +1,7 @@
 import json
 import logging
 from collections.abc import Callable
+from datetime import datetime
 from functools import wraps
 from typing import Any
 
@@ -33,11 +34,17 @@ def task(url_path: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     return decorator
 
 
-def enqueue(url_path: str, payload: dict[str, Any] | None = None) -> None:
+def enqueue(
+    url_path: str,
+    payload: dict[str, Any] | None = None,
+    schedule_time: datetime | None = None,
+) -> None:
     if payload is None:
         payload = {}
 
     if settings.DEBUG:
+        if schedule_time is not None:
+            return
         fn = _registry.get(url_path)
         if fn is None:
             raise ValueError(
@@ -55,22 +62,23 @@ def enqueue(url_path: str, payload: dict[str, Any] | None = None) -> None:
         settings.GCP_REGION,
         settings.CLOUD_TASKS_QUEUE,
     )
-    client.create_task(
-        request={
-            "parent": parent,
-            "task": {
-                "http_request": {
-                    "http_method": tasks_v2.HttpMethod.POST,
-                    "url": f"{settings.TASK_BASE_URL}/tasks/{url_path}/",
-                    "headers": {"Content-Type": "application/json"},
-                    "body": json.dumps(payload).encode(),
-                    "oidc_token": {
-                        "service_account_email": settings.TASK_SERVICE_ACCOUNT,
-                    },
-                }
+    task_body: dict[str, Any] = {
+        "http_request": {
+            "http_method": tasks_v2.HttpMethod.POST,
+            "url": f"{settings.TASK_BASE_URL}/tasks/{url_path}/",
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps(payload).encode(),
+            "oidc_token": {
+                "service_account_email": settings.TASK_SERVICE_ACCOUNT,
             },
         }
-    )
+    }
+    if schedule_time is not None:
+        from google.protobuf import timestamp_pb2
+        ts = timestamp_pb2.Timestamp()
+        ts.FromDatetime(schedule_time)
+        task_body["schedule_time"] = ts
+    client.create_task(request={"parent": parent, "task": task_body})
 
 
 def _verify_oidc(request: HttpRequest) -> bool:

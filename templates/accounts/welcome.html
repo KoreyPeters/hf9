@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Welcome — Human Flourishing{% endblock %}
+{% block content %}
+<main style="max-width:560px;margin:4rem auto;padding:0 1.5rem;font-family:system-ui,sans-serif;text-align:center">
+  <h1 style="font-family:Georgia,serif;font-weight:normal;margin-bottom:.5rem">You're in.</h1>
+  <p style="color:#555;margin-bottom:1.5rem">
+    Your account is ready. We sent a verification link to <strong>{{ user.email }}</strong> —
+    click it to start earning points.
+  </p>
+  <p style="color:#888;font-size:.9rem;margin-bottom:2rem">
+    You can browse and survey right now. Points start accruing as soon as you verify.
+  </p>
+  <a href="{% url 'polium:home' %}" style="display:inline-block;padding:.75rem 2rem;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none;font-size:1rem">
+    Start playing
+  </a>
+</main>
+{% endblock %}

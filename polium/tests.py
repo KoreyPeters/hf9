@@ -1,11 +1,11 @@
+from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
-import polium.task_views
 import pytest
 
 from core.tasks import _registry
-from polium.models import BlacklistHistory, Candidate, Jurisdiction
+from polium.models import BlacklistHistory, Candidate, Election, Jurisdiction, JurisdictionFollow
 
 
 @pytest.fixture
@@ -99,3 +99,63 @@ def test_task_updates_current_rating(candidate: Candidate) -> None:
 def test_task_callable_directly_without_http(candidate: Candidate) -> None:
     with patch("polium.task_views.compute_rating", return_value=0.50):
         _registry["update-candidate-rating"](candidate_id=candidate.pk)
+
+
+# ── Polium home ───────────────────────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_anonymous_polium_home_returns_200(client) -> None:
+    resp = client.get("/polium/")
+    assert resp.status_code == 200
+    assert b"state" not in resp.content or b"anonymous" in resp.content or resp.status_code == 200
+
+
+@pytest.mark.django_db
+def test_authenticated_no_follows_shows_no_follows_state(client, jurisdiction: Jurisdiction) -> None:
+    from accounts.models import Player
+    from accounts.utils import generate_username
+    player = Player.objects.create_user(
+        username=generate_username(), email="home@example.com", password=None
+    )
+    client.force_login(player)
+    resp = client.get("/polium/")
+    assert resp.status_code == 200
+    assert b"Follow jurisdictions" in resp.content
+
+
+@pytest.mark.django_db
+def test_authenticated_with_follows_and_elections_shows_elections(
+    client, jurisdiction: Jurisdiction
+) -> None:
+    from accounts.models import Player
+    from accounts.utils import generate_username
+    player = Player.objects.create_user(
+        username=generate_username(), email="home2@example.com", password=None
+    )
+    JurisdictionFollow.objects.create(player=player, jurisdiction=jurisdiction)
+    Election.objects.create(
+        name="Test Election",
+        jurisdiction=jurisdiction,
+        election_date=date.today() + timedelta(days=30),
+        created_by=player,
+    )
+    client.force_login(player)
+    resp = client.get("/polium/")
+    assert resp.status_code == 200
+    assert b"Test Election" in resp.content
+
+
+@pytest.mark.django_db
+def test_authenticated_with_follows_no_elections_shows_no_elections_state(
+    client, jurisdiction: Jurisdiction
+) -> None:
+    from accounts.models import Player
+    from accounts.utils import generate_username
+    player = Player.objects.create_user(
+        username=generate_username(), email="home3@example.com", password=None
+    )
+    JurisdictionFollow.objects.create(player=player, jurisdiction=jurisdiction)
+    client.force_login(player)
+    resp = client.get("/polium/")
+    assert resp.status_code == 200
+    assert b"No upcoming elections" in resp.content

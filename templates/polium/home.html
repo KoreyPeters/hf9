@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Polium — Human Flourishing{% endblock %}
+{% block content %}
+<main style="max-width:800px;margin:0 auto;padding:2rem 1.5rem;font-family:system-ui,sans-serif">
+
+  <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:1.5rem">
+    <h1 style="font-family:Georgia,serif;font-weight:normal;margin:0">Polium</h1>
+    {% if user.is_authenticated %}
+    <span style="font-size:.875rem;color:#888">{{ user.display_name|default:user.username }}</span>
+    {% else %}
+    <a href="{% url 'accounts:signup' %}" style="font-size:.875rem;color:#1a1a1a">Sign up to earn points</a>
+    {% endif %}
+  </div>
+
+  {% if state == "anonymous" %}
+  <p style="color:#555;margin-bottom:1.5rem">
+    Rate politicians against ethical criteria, declare your vote, and earn points.
+    <a href="{% url 'accounts:signup' %}">Sign up — it's free.</a>
+  </p>
+  {% if upcoming_elections %}
+  <h2 style="font-size:1rem;font-weight:600;color:#444;margin-bottom:1rem">Upcoming elections</h2>
+  <div style="display:flex;flex-direction:column;gap:.75rem">
+    {% for election in upcoming_elections %}
+    <a href="{% url 'polium:election_detail' election.sqid %}" style="display:block;padding:1rem;border:1px solid #e5e7eb;border-radius:6px;text-decoration:none;color:#111">
+      <div style="font-weight:500">{{ election.name }}</div>
+      <div style="font-size:.875rem;color:#6b7280;margin-top:.25rem">{{ election.jurisdiction.name }} &middot; {{ election.election_date }}</div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p style="color:#888">No upcoming elections in the system yet.</p>
+  {% endif %}
+
+  {% elif state == "no_follows" %}
+  <p style="color:#555;margin-bottom:2rem">Follow jurisdictions to see elections near you.</p>
+  <div style="max-width:480px">
+    <label for="jurisdiction-search" style="display:block;font-size:.875rem;color:#444;margin-bottom:.5rem">Search for a jurisdiction</label>
+    <input type="text" id="jurisdiction-search" placeholder="e.g. California, United Kingdom, Ontario…"
+           autocomplete="off"
+           style="width:100%;padding:.6rem .8rem;border:1px solid #ccc;border-radius:4px;font-size:1rem;box-sizing:border-box">
+    <div id="search-results" style="margin-top:.5rem;display:flex;flex-direction:column;gap:.5rem"></div>
+  </div>
+  <span id="csrf-val" data-token="{{ csrf_token }}" style="display:none"></span>
+  <script>
+  (function() {
+    const input = document.getElementById('jurisdiction-search');
+    const results = document.getElementById('search-results');
+    const csrf = document.getElementById('csrf-val').dataset.token;
+    let timer;
+    input.addEventListener('input', function() {
+      clearTimeout(timer);
+      const q = input.value.trim();
+      if (q.length < 2) { results.innerHTML = ''; return; }
+      timer = setTimeout(function() {
+        fetch('{% url "polium:jurisdiction_search" %}?q=' + encodeURIComponent(q))
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (!data.results.length) {
+              results.innerHTML = '<p style="color:#888;font-size:.875rem">No jurisdictions found.</p>';
+              return;
+            }
+            results.innerHTML = data.results.map(function(j) {
+              return '<form method="post" action="{% url "polium:follow_jurisdiction" %}">'
+                + '<input type="hidden" name="csrfmiddlewaretoken" value="' + csrf + '">'
+                + '<input type="hidden" name="jurisdiction_sqid" value="' + j.sqid + '">'
+                + '<input type="hidden" name="depth" value="all">'
+                + '<button type="submit" style="width:100%;text-align:left;padding:.6rem .8rem;border:1px solid #e5e7eb;border-radius:4px;background:#fff;cursor:pointer;font-size:.9rem">'
+                + '<strong>' + j.name + '</strong> <span style="color:#9ca3af;font-size:.8rem">(' + j.level + ')</span>'
+                + '</button></form>';
+            }).join('');
+          });
+      }, 300);
+    });
+  })();
+  </script>
+
+  {% elif state == "no_elections" %}
+  <p style="color:#555;margin-bottom:1.5rem">No upcoming elections in your followed jurisdictions.</p>
+  <div style="margin-bottom:2rem">
+    <h2 style="font-size:1rem;font-weight:600;color:#444;margin-bottom:.5rem">Your followed jurisdictions</h2>
+    <div style="display:flex;flex-wrap:wrap;gap:.5rem">
+      {% for j in followed_jurisdictions %}
+      <a href="{% url 'polium:jurisdiction_detail' j.sqid %}" style="padding:.3rem .75rem;border:1px solid #e5e7eb;border-radius:99px;font-size:.875rem;text-decoration:none;color:#374151">{{ j.name }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  <div style="max-width:480px">
+    <p style="font-size:.875rem;color:#6b7280;margin-bottom:.5rem">Follow more jurisdictions:</p>
+    <label for="jurisdiction-search" style="display:none">Search jurisdictions</label>
+    <input type="text" id="jurisdiction-search" placeholder="Search jurisdictions…"
+           autocomplete="off"
+           style="width:100%;padding:.6rem .8rem;border:1px solid #ccc;border-radius:4px;font-size:1rem;box-sizing:border-box">
+    <div id="search-results" style="margin-top:.5rem;display:flex;flex-direction:column;gap:.5rem"></div>
+  </div>
+  <span id="csrf-val" data-token="{{ csrf_token }}" style="display:none"></span>
+  <script>
+  (function() {
+    const input = document.getElementById('jurisdiction-search');
+    const results = document.getElementById('search-results');
+    const csrf = document.getElementById('csrf-val').dataset.token;
+    let timer;
+    input.addEventListener('input', function() {
+      clearTimeout(timer);
+      const q = input.value.trim();
+      if (q.length < 2) { results.innerHTML = ''; return; }
+      timer = setTimeout(function() {
+        fetch('{% url "polium:jurisdiction_search" %}?q=' + encodeURIComponent(q))
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            results.innerHTML = data.results.map(function(j) {
+              return '<form method="post" action="{% url "polium:follow_jurisdiction" %}">'
+                + '<input type="hidden" name="csrfmiddlewaretoken" value="' + csrf + '">'
+                + '<input type="hidden" name="jurisdiction_sqid" value="' + j.sqid + '">'
+                + '<input type="hidden" name="depth" value="all">'
+                + '<button type="submit" style="width:100%;text-align:left;padding:.6rem .8rem;border:1px solid #e5e7eb;border-radius:4px;background:#fff;cursor:pointer;font-size:.9rem">'
+                + '<strong>' + j.name + '</strong> <span style="color:#9ca3af;font-size:.8rem">(' + j.level + ')</span>'
+                + '</button></form>';
+            }).join('');
+          });
+      }, 300);
+    });
+  })();
+  </script>
+
+  {% elif state == "populated" %}
+  <div style="margin-bottom:2rem">
+    <div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem">
+      {% for j in followed_jurisdictions %}
+      <a href="{% url 'polium:jurisdiction_detail' j.sqid %}" style="padding:.3rem .75rem;border:1px solid #e5e7eb;border-radius:99px;font-size:.8rem;text-decoration:none;color:#6b7280">{{ j.name }}</a>
+      {% endfor %}
+    </div>
+    <h2 style="font-size:1rem;font-weight:600;color:#444;margin-bottom:1rem">Upcoming elections</h2>
+    <div style="display:flex;flex-direction:column;gap:.75rem">
+      {% for election in upcoming_elections %}
+      <a href="{% url 'polium:election_detail' election.sqid %}" style="display:block;padding:1rem;border:1px solid #e5e7eb;border-radius:6px;text-decoration:none;color:#111">
+        <div style="font-weight:500">{{ election.name }}</div>
+        <div style="font-size:.875rem;color:#6b7280;margin-top:.25rem">{{ election.jurisdiction.name }} &middot; {{ election.election_date }}</div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+</main>
+{% endblock %}

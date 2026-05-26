@@ -17,6 +17,21 @@ def player(db):
     )
 
 
+@pytest.fixture
+def unverified_player(db):
+    from accounts.models import Player
+    from accounts.utils import generate_username
+    p = Player.objects.create_user(
+        username=generate_username(),
+        email="unverified@example.com",
+        password=None,
+        display_name="Unverified Player",
+    )
+    return p
+
+
+# ── Magic link ────────────────────────────────────────────────────────────────
+
 @pytest.mark.django_db
 def test_magic_link_url_contains_sesame_token(player, rf):
     from django.core import mail
@@ -48,6 +63,19 @@ def test_magic_link_one_time_use(player, client):
     assert resp.status_code in (200, 302, 403)
     assert "_auth_user_id" not in client.session
 
+
+@pytest.mark.django_db
+def test_magic_link_login_sets_email_verified(player, client):
+    from sesame.utils import get_query_string
+    assert player.email_verified is False
+    token_qs = get_query_string(player)
+    client.get(f"/accounts/login/magic/{token_qs}")
+    player.refresh_from_db()
+    assert player.email_verified is True
+    assert player.email_verified_at is not None
+
+
+# ── Email verification ────────────────────────────────────────────────────────
 
 @pytest.mark.django_db
 def test_email_verification_sets_verified(player):
@@ -94,6 +122,27 @@ def test_email_verification_expired_raises(player):
         verify_email_token(raw)
 
 
+# ── Verification banner ───────────────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_unverified_player_sees_banner(unverified_player, client):
+    client.force_login(unverified_player)
+    resp = client.get("/accounts/welcome/")
+    assert b"verify-banner" in resp.content
+
+
+@pytest.mark.django_db
+def test_verified_player_no_banner(client, player):
+    from accounts.models import Player
+    Player.objects.filter(pk=player.pk).update(email_verified=True)
+    player.refresh_from_db()
+    client.force_login(player)
+    resp = client.get("/accounts/welcome/")
+    assert b"verify-banner" not in resp.content
+
+
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+
 @pytest.mark.django_db
 def test_rate_limit_blocks_after_limit(rf):
     from django.core.cache import cache
@@ -104,6 +153,19 @@ def test_rate_limit_blocks_after_limit(rf):
         assert check_rate_limit(request, "test_action", limit=10) is True
     assert check_rate_limit(request, "test_action", limit=10) is False
 
+
+@pytest.mark.django_db
+def test_resend_verification_rate_limited(unverified_player, client):
+    from django.core.cache import cache
+    cache.clear()
+    client.force_login(unverified_player)
+    for _ in range(3):
+        client.post("/accounts/verify-email/resend/")
+    resp = client.post("/accounts/verify-email/resend/")
+    assert b"Too many requests" in resp.content
+
+
+# ── Signup ────────────────────────────────────────────────────────────────────
 
 @pytest.mark.django_db
 def test_signup_creates_player_with_unusable_password(client):
@@ -121,3 +183,48 @@ def test_signup_creates_player_with_unusable_password(client):
     assert p.display_name == "New Player"
     assert not p.has_usable_password()
     assert p.email_verified is False
+
+
+@pytest.mark.django_db
+def test_signup_redirects_to_welcome(client):
+    from django.core.cache import cache
+    cache.clear()
+    resp = client.post("/accounts/signup/", {
+        "email": "welcome@example.com",
+        "display_name": "Welcome Player",
+    })
+    assert resp.status_code == 302
+    assert resp["Location"] == "/accounts/welcome/"
+
+
+# ── Verification reminder task ────────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_reminder_task_skips_verified_player(player):
+    from django.core import mail
+    from core.tasks import _registry
+    Player = player.__class__
+    Player.objects.filter(pk=player.pk).update(email_verified=True)
+    _registry["verify-email-reminder"](player_id=player.pk)
+    assert len(mail.outbox) == 0
+
+
+@pytest.mark.django_db
+def test_reminder_task_skips_outside_30_day_window(unverified_player):
+    from django.core import mail
+    from core.tasks import _registry
+    from accounts.models import Player
+    Player.objects.filter(pk=unverified_player.pk).update(
+        date_joined=timezone.now() - timedelta(days=31)
+    )
+    _registry["verify-email-reminder"](player_id=unverified_player.pk)
+    assert len(mail.outbox) == 0
+
+
+@pytest.mark.django_db
+def test_reminder_task_sends_for_unverified_player_within_window(unverified_player):
+    from django.core import mail
+    from core.tasks import _registry
+    _registry["verify-email-reminder"](player_id=unverified_player.pk)
+    assert len(mail.outbox) == 1
+    assert mail.outbox[0].to == [unverified_player.email]
