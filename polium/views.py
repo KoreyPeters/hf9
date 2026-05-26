@@ -1,11 +1,17 @@
 from datetime import date
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.contenttypes.models import ContentType
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from .models import Election, Jurisdiction, JurisdictionFollow
+from evidence.models import Evidence, EvidenceFlag
+from evidence.service import AlreadyFlaggedError, NotMatureError, flag_evidence, submit_evidence, vote_usefulness
+from surveys.models import Criterion
+
+from .models import Candidate, Election, Jurisdiction, JurisdictionFollow
 
 
 def _get_descendant_ids(jurisdiction_id: int) -> set[int]:
@@ -95,7 +101,65 @@ def follow_jurisdiction(request: HttpRequest) -> HttpResponse:
 
 
 def candidate_detail(request: HttpRequest, sqid: str) -> HttpResponse:
-    return HttpResponse("TODO")
+    candidate = get_object_or_404(Candidate, sqid=sqid)
+    ct = ContentType.objects.get_for_model(Candidate)
+    evidence_qs = (
+        Evidence.objects.filter(
+            content_type=ct,
+            object_id=candidate.pk,
+            status=Evidence.STATUS_VISIBLE,
+        )
+        .select_related("submitted_by", "criterion")
+        .order_by("-net_usefulness_score", "-submitted_at")
+    )
+    blacklist_record = (
+        candidate.blacklist_history.order_by("-blacklisted_at").first()
+        if candidate.is_blacklisted else None
+    )
+    criteria = Criterion.objects.filter(is_active=True).order_by("category__name", "question")
+    return render(request, "polium/candidate_profile.html", {
+        "candidate": candidate,
+        "evidence_list": evidence_qs,
+        "blacklist_record": blacklist_record,
+        "criteria": criteria,
+        "flag_reasons": EvidenceFlag.REASON_CHOICES,
+    })
+
+
+@login_required
+@require_POST
+def evidence_submit(request: HttpRequest, sqid: str) -> HttpResponse:
+    candidate = get_object_or_404(Candidate, sqid=sqid)
+    url = request.POST.get("url", "").strip()
+    note = request.POST.get("note", "").strip()
+    criterion_id = request.POST.get("criterion_id") or None
+    criterion = get_object_or_404(Criterion, pk=criterion_id) if criterion_id else None
+    if url and note:
+        submit_evidence(request.user, candidate, url, note, criterion)
+    return redirect("polium:candidate_detail", sqid=sqid)
+
+
+@login_required
+@require_POST
+def evidence_vote(request: HttpRequest, pk: int) -> HttpResponse:
+    evidence = get_object_or_404(Evidence, pk=pk)
+    is_useful = request.POST.get("is_useful") == "true"
+    vote_usefulness(request.user, evidence, is_useful)
+    return redirect(request.META.get("HTTP_REFERER", "/"))
+
+
+@login_required
+@require_POST
+def evidence_flag(request: HttpRequest, pk: int) -> HttpResponse:
+    evidence = get_object_or_404(Evidence, pk=pk)
+    reason = request.POST.get("reason", EvidenceFlag.REASON_IRRELEVANT)
+    try:
+        flag_evidence(request.user, evidence, reason)
+    except NotMatureError:
+        messages.error(request, "Your account must be at least 7 days old with 3 surveys submitted to flag evidence.")
+    except AlreadyFlaggedError:
+        messages.error(request, "You have already flagged this evidence.")
+    return redirect(request.META.get("HTTP_REFERER", "/"))
 
 
 def election_detail(request: HttpRequest, sqid: str) -> HttpResponse:

@@ -13,4 +13,7 @@ urlpatterns = [
     path("jurisdictions/<str:sqid>/", views.jurisdiction_detail, name="jurisdiction_detail"),
     path("candidates/<str:sqid>/survey/", views.submit_survey, name="submit_survey"),
     path("candidates/<str:sqid>/declare/", views.declare_vote, name="declare_vote"),
+    path("candidates/<str:sqid>/evidence/submit/", views.evidence_submit, name="evidence_submit"),
+    path("evidence/<int:pk>/vote/", views.evidence_vote, name="evidence_vote"),
+    path("evidence/<int:pk>/flag/", views.evidence_flag, name="evidence_flag"),
 ]
