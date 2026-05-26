@@ -14,7 +14,6 @@ dependencies = [
     "django-storages[google]>=1.14.6",
     "google-cloud-tasks>=2.22.0",
     "pillow>=12.2.0",
-    "psycopg[binary]>=3.3.4",
     "python-decouple>=3.8",
     "redis>=7.4.0",
     "sqids>=0.5.2",

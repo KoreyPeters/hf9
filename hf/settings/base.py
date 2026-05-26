@@ -64,12 +64,19 @@ TEMPLATES = [
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": config("DB_NAME", default="hf"),
-        "USER": config("DB_USER", default="hf"),
-        "PASSWORD": config("DB_PASSWORD", default="hf"),
-        "HOST": config("DB_HOST", default="localhost"),
-        "PORT": config("DB_PORT", default="5432"),
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": config("DB_PATH", default=BASE_DIR / "db.sqlite3"),
+        "OPTIONS": {
+            "init_command": (
+                "PRAGMA journal_mode=WAL; "
+                "PRAGMA synchronous=NORMAL; "
+                "PRAGMA foreign_keys=ON; "
+                "PRAGMA cache_size=-32000; "
+                "PRAGMA temp_store=MEMORY; "
+                "PRAGMA mmap_size=134217728;"
+            ),
+            "timeout": 20,
+        },
     }
 }
 
