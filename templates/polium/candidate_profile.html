@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}{{ candidate.name }} — Polium{% endblock %}
+{% block content %}
+<main style="max-width:800px;margin:0 auto;padding:2rem 1.5rem;font-family:system-ui,sans-serif">
+
+  {# Header #}
+  <div style="margin-bottom:2rem">
+    <div style="display:flex;align-items:baseline;gap:1rem;flex-wrap:wrap;margin-bottom:.5rem">
+      <h1 style="font-family:Georgia,serif;font-weight:normal;margin:0">{{ candidate.name }}</h1>
+      {% if candidate.is_endorsed %}
+      <span style="font-size:.75rem;font-weight:600;color:#047857;background:#d1fae5;padding:.25rem .6rem;border-radius:99px">HF Endorsed</span>
+      {% endif %}
+    </div>
+    <p style="color:#6b7280;margin:.25rem 0 0">
+      {{ candidate.office }}{% if candidate.jurisdiction %} &middot; {{ candidate.jurisdiction.name }}{% endif %}
+    </p>
+    <p style="margin:.5rem 0 0;font-size:1.1rem;font-weight:600">
+      Rating: {{ candidate.current_rating }}%
+    </p>
+  </div>
+
+  {# Blacklist notice #}
+  {% if candidate.is_blacklisted %}
+  <div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:6px;padding:1rem 1.25rem;margin-bottom:2rem">
+    <p style="margin:0 0 .5rem;font-weight:600;color:#991b1b">This candidate has been blacklisted.</p>
+    {% if blacklist_record %}
+    <p style="margin:0 0 .25rem;font-size:.875rem;color:#7f1d1d">
+      Blacklisted {{ blacklist_record.blacklisted_at|date }} &mdash; {{ blacklist_record.reason }}
+    </p>
+    {% if blacklist_record.forum_discussion_url %}
+    <a href="{{ blacklist_record.forum_discussion_url }}" target="_blank" rel="noopener" style="font-size:.875rem;color:#991b1b">Community discussion &rarr;</a>
+    {% endif %}
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {# Messages #}
+  {% for message in messages %}
+  <div style="background:#fef9c3;border:1px solid #fde047;border-radius:6px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.875rem;color:#713f12">
+    {{ message }}
+  </div>
+  {% endfor %}
+
+  {# Evidence section #}
+  <section style="margin-bottom:2.5rem">
+    <h2 style="font-size:1rem;font-weight:600;color:#374151;margin-bottom:1rem">Evidence</h2>
+
+    {% if evidence_list %}
+    <div style="display:flex;flex-direction:column;gap:1rem;margin-bottom:2rem">
+      {% for ev in evidence_list %}
+      <div style="border:1px solid #e5e7eb;border-radius:6px;padding:1rem 1.25rem">
+        <div style="margin-bottom:.5rem">
+          <a href="{{ ev.url }}" target="_blank" rel="noopener"
+             style="color:#1d4ed8;word-break:break-all;font-size:.9rem">
+            {{ ev.url|truncatechars:80 }}
+          </a>
+        </div>
+        <p style="margin:0 0 .5rem;font-size:.9rem;color:#111">{{ ev.note }}</p>
+        {% if ev.criterion %}
+        <span style="display:inline-block;font-size:.75rem;color:#6b7280;background:#f3f4f6;padding:.2rem .5rem;border-radius:4px;margin-bottom:.5rem">
+          {{ ev.criterion.question|truncatechars:60 }}
+        </span>
+        {% endif %}
+        <div style="font-size:.75rem;color:#9ca3af;margin-bottom:.75rem">
+          {{ ev.submitted_by.display_label }} &middot; {{ ev.submitted_at|date }}
+          &middot; Score: {{ ev.net_usefulness_score }}
+        </div>
+
+        {% if user.is_authenticated %}
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+          <form method="post" action="{% url 'polium:evidence_vote' ev.pk %}" style="display:inline">
+            {% csrf_token %}
+            <input type="hidden" name="is_useful" value="true">
+            <button type="submit" style="font-size:.8rem;padding:.3rem .7rem;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;color:#374151">Useful</button>
+          </form>
+          <form method="post" action="{% url 'polium:evidence_vote' ev.pk %}" style="display:inline">
+            {% csrf_token %}
+            <input type="hidden" name="is_useful" value="false">
+            <button type="submit" style="font-size:.8rem;padding:.3rem .7rem;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;color:#374151">Not useful</button>
+          </form>
+          <details style="display:inline">
+            <summary style="font-size:.8rem;color:#6b7280;cursor:pointer;list-style:none">Flag</summary>
+            <form method="post" action="{% url 'polium:evidence_flag' ev.pk %}" style="margin-top:.5rem;display:flex;gap:.5rem;align-items:center">
+              {% csrf_token %}
+              <select name="reason" style="font-size:.8rem;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:4px">
+                {% for value, label in flag_reasons %}
+                <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" style="font-size:.8rem;padding:.3rem .7rem;border:1px solid #fca5a5;border-radius:4px;background:#fff;cursor:pointer;color:#991b1b">Submit flag</button>
+            </form>
+          </details>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p style="color:#9ca3af;font-size:.9rem;margin-bottom:2rem">No evidence submitted yet.</p>
+    {% endif %}
+
+    {# Submit form #}
+    {% if user.is_authenticated %}
+    <div style="border:1px solid #e5e7eb;border-radius:6px;padding:1.25rem;background:#f9fafb">
+      <h3 style="font-size:.9rem;font-weight:600;color:#374151;margin:0 0 1rem">Submit evidence</h3>
+      <form method="post" action="{% url 'polium:evidence_submit' candidate.sqid %}">
+        {% csrf_token %}
+        <div style="margin-bottom:.75rem">
+          <label for="ev-url" style="display:block;font-size:.8rem;color:#6b7280;margin-bottom:.3rem">URL (required)</label>
+          <input type="url" id="ev-url" name="url" required
+                 style="width:100%;padding:.5rem .7rem;border:1px solid #d1d5db;border-radius:4px;font-size:.9rem;box-sizing:border-box">
+        </div>
+        <div style="margin-bottom:.75rem">
+          <label for="ev-note" style="display:block;font-size:.8rem;color:#6b7280;margin-bottom:.3rem">Note (required)</label>
+          <textarea id="ev-note" name="note" required rows="3"
+                    style="width:100%;padding:.5rem .7rem;border:1px solid #d1d5db;border-radius:4px;font-size:.9rem;box-sizing:border-box;resize:vertical"></textarea>
+        </div>
+        {% if criteria %}
+        <div style="margin-bottom:1rem">
+          <label for="ev-criterion" style="display:block;font-size:.8rem;color:#6b7280;margin-bottom:.3rem">Criterion (optional)</label>
+          <select id="ev-criterion" name="criterion_id"
+                  style="width:100%;padding:.5rem .7rem;border:1px solid #d1d5db;border-radius:4px;font-size:.9rem;box-sizing:border-box">
+            <option value="">— none —</option>
+            {% for criterion in criteria %}
+            <option value="{{ criterion.pk }}">{{ criterion.question|truncatechars:80 }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        <button type="submit" style="padding:.5rem 1.25rem;background:#1d4ed8;color:#fff;border:none;border-radius:4px;font-size:.9rem;cursor:pointer">Submit</button>
+      </form>
+    </div>
+    {% else %}
+    <p style="color:#6b7280;font-size:.875rem">
+      <a href="{% url 'accounts:login' %}" style="color:#1d4ed8">Log in</a> to submit evidence or vote.
+    </p>
+    {% endif %}
+
+  </section>
+
+</main>
+{% endblock %}
