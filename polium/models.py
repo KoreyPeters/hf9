@@ -140,6 +140,17 @@ class Candidate(SqidMixin):
     created_at = models.DateTimeField(auto_now_add=True)
     duplicates = models.ManyToManyField("self", blank=True, symmetrical=True)
 
+    is_endorsed = models.BooleanField(default=False)
+    endorsement_url = models.URLField(blank=True)
+    endorsement_verified_at = models.DateTimeField(null=True, blank=True)
+
+    election_win_confirmed = models.BooleanField(default=False)
+    pre_election_rating_snapshot = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True
+    )
+
+    rating_below_threshold_since = models.DateTimeField(null=True, blank=True)
+
     def generate_sqid(self) -> str:
         return Sqids(alphabet=settings.SQID_SALTS["candidate"]).encode([self.pk])
 
@@ -180,9 +191,15 @@ class BlacklistHistory(models.Model):
         Candidate, on_delete=models.CASCADE, related_name="blacklist_history"
     )
     blacklisted_at = models.DateTimeField()
-    lifted_at = models.DateTimeField(null=True, blank=True)
     rating_at_blacklist = models.DecimalField(max_digits=5, decimal_places=2)
-    rating_at_lift = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    blacklisted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="blacklist_actions",
+    )
+    forum_discussion_url = models.URLField(blank=True)
+    reason = models.TextField(blank=True)
 
 
 class VoteDeclaration(models.Model):

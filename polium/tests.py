@@ -20,57 +20,30 @@ def candidate(db: None, jurisdiction: Jurisdiction) -> Candidate:
     )
 
 
-@pytest.mark.django_db
-def test_blacklist_entry_below_threshold(candidate: Candidate) -> None:
-    with patch("polium.task_views.compute_rating", return_value=0.10):
-        _registry["update-candidate-rating"](candidate_id=candidate.pk)
-    candidate.refresh_from_db()
-    assert candidate.is_blacklisted is True
-    entry = BlacklistHistory.objects.get(candidate=candidate)
-    assert entry.rating_at_blacklist == Decimal("0.1")
+@pytest.fixture
+def endorsed_candidate(db: None, jurisdiction: Jurisdiction) -> Candidate:
+    c = Candidate.objects.create(
+        name="Endorsed Candidate", jurisdiction=jurisdiction, office="Senator"
+    )
+    Candidate.objects.filter(pk=c.pk).update(
+        is_endorsed=True,
+        election_win_confirmed=True,
+        pre_election_rating_snapshot=Decimal("0.80"),
+        current_rating=Decimal("0.80"),
+    )
+    c.refresh_from_db()
+    return c
 
 
+# ── Rating task — blacklisting removed ────────────────────────────────────────
+
 @pytest.mark.django_db
-def test_blacklist_not_triggered_above_entry(candidate: Candidate) -> None:
-    with patch("polium.task_views.compute_rating", return_value=0.30):
+def test_rating_task_does_not_blacklist(candidate: Candidate) -> None:
+    with patch("polium.task_views.compute_rating", return_value=0.05):
         _registry["update-candidate-rating"](candidate_id=candidate.pk)
     candidate.refresh_from_db()
     assert candidate.is_blacklisted is False
     assert BlacklistHistory.objects.filter(candidate=candidate).count() == 0
-
-
-@pytest.mark.django_db
-def test_blacklist_lift_above_exit_threshold(candidate: Candidate) -> None:
-    from django.utils import timezone
-
-    now = timezone.now()
-    Candidate.objects.filter(pk=candidate.pk).update(is_blacklisted=True, blacklisted_at=now)
-    BlacklistHistory.objects.create(
-        candidate=candidate, blacklisted_at=now, rating_at_blacklist=Decimal("0.10")
-    )
-    with patch("polium.task_views.compute_rating", return_value=0.60):
-        _registry["update-candidate-rating"](candidate_id=candidate.pk)
-    candidate.refresh_from_db()
-    assert candidate.is_blacklisted is False
-    entry = BlacklistHistory.objects.get(candidate=candidate)
-    assert entry.lifted_at is not None
-
-
-@pytest.mark.django_db
-def test_blacklist_not_lifted_between_thresholds(candidate: Candidate) -> None:
-    from django.utils import timezone
-
-    now = timezone.now()
-    Candidate.objects.filter(pk=candidate.pk).update(is_blacklisted=True, blacklisted_at=now)
-    BlacklistHistory.objects.create(
-        candidate=candidate, blacklisted_at=now, rating_at_blacklist=Decimal("0.10")
-    )
-    with patch("polium.task_views.compute_rating", return_value=0.40):
-        _registry["update-candidate-rating"](candidate_id=candidate.pk)
-    candidate.refresh_from_db()
-    assert candidate.is_blacklisted is True
-    entry = BlacklistHistory.objects.get(candidate=candidate)
-    assert entry.lifted_at is None
 
 
 @pytest.mark.django_db
@@ -99,6 +72,107 @@ def test_task_updates_current_rating(candidate: Candidate) -> None:
 def test_task_callable_directly_without_http(candidate: Candidate) -> None:
     with patch("polium.task_views.compute_rating", return_value=0.50):
         _registry["update-candidate-rating"](candidate_id=candidate.pk)
+
+
+# ── Window tracking ───────────────────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_rating_task_sets_window_when_conditions_met(endorsed_candidate: Candidate) -> None:
+    # pre_election_rating_snapshot=0.80, BLACKLIST_RATIO=0.50 → threshold=0.40
+    # rating of 0.30 is below threshold
+    with patch("polium.task_views.compute_rating", return_value=0.30):
+        _registry["update-candidate-rating"](candidate_id=endorsed_candidate.pk)
+    endorsed_candidate.refresh_from_db()
+    assert endorsed_candidate.rating_below_threshold_since is not None
+
+
+@pytest.mark.django_db
+def test_rating_task_clears_window_on_recovery(endorsed_candidate: Candidate) -> None:
+    from django.utils import timezone
+    Candidate.objects.filter(pk=endorsed_candidate.pk).update(
+        rating_below_threshold_since=timezone.now() - timedelta(days=10)
+    )
+    # rating of 0.50 is above threshold (0.40)
+    with patch("polium.task_views.compute_rating", return_value=0.50):
+        _registry["update-candidate-rating"](candidate_id=endorsed_candidate.pk)
+    endorsed_candidate.refresh_from_db()
+    assert endorsed_candidate.rating_below_threshold_since is None
+
+
+@pytest.mark.django_db
+def test_rating_task_threshold_scales_with_snapshot(jurisdiction: Jurisdiction) -> None:
+    # snapshot=0.60 → threshold=0.30; rating of 0.35 is above threshold, window not set
+    c = Candidate.objects.create(name="C", jurisdiction=jurisdiction, office="MP")
+    Candidate.objects.filter(pk=c.pk).update(
+        is_endorsed=True,
+        election_win_confirmed=True,
+        pre_election_rating_snapshot=Decimal("0.60"),
+        current_rating=Decimal("0.60"),
+    )
+    with patch("polium.task_views.compute_rating", return_value=0.35):
+        _registry["update-candidate-rating"](candidate_id=c.pk)
+    c.refresh_from_db()
+    assert c.rating_below_threshold_since is None
+
+    # rating of 0.25 is below threshold (0.30), window should be set
+    with patch("polium.task_views.compute_rating", return_value=0.25):
+        _registry["update-candidate-rating"](candidate_id=c.pk)
+    c.refresh_from_db()
+    assert c.rating_below_threshold_since is not None
+
+
+@pytest.mark.django_db
+def test_rating_task_ignores_window_without_endorsement(jurisdiction: Jurisdiction) -> None:
+    c = Candidate.objects.create(name="C", jurisdiction=jurisdiction, office="MP")
+    Candidate.objects.filter(pk=c.pk).update(
+        is_endorsed=False,
+        election_win_confirmed=True,
+        pre_election_rating_snapshot=Decimal("0.80"),
+    )
+    with patch("polium.task_views.compute_rating", return_value=0.10):
+        _registry["update-candidate-rating"](candidate_id=c.pk)
+    c.refresh_from_db()
+    assert c.rating_below_threshold_since is None
+
+
+@pytest.mark.django_db
+def test_rating_task_ignores_window_without_election_win(jurisdiction: Jurisdiction) -> None:
+    c = Candidate.objects.create(name="C", jurisdiction=jurisdiction, office="MP")
+    Candidate.objects.filter(pk=c.pk).update(
+        is_endorsed=True,
+        election_win_confirmed=False,
+        pre_election_rating_snapshot=Decimal("0.80"),
+    )
+    with patch("polium.task_views.compute_rating", return_value=0.10):
+        _registry["update-candidate-rating"](candidate_id=c.pk)
+    c.refresh_from_db()
+    assert c.rating_below_threshold_since is None
+
+
+@pytest.mark.django_db
+def test_rating_task_ignores_window_without_snapshot(jurisdiction: Jurisdiction) -> None:
+    c = Candidate.objects.create(name="C", jurisdiction=jurisdiction, office="MP")
+    Candidate.objects.filter(pk=c.pk).update(
+        is_endorsed=True,
+        election_win_confirmed=True,
+        pre_election_rating_snapshot=None,
+    )
+    with patch("polium.task_views.compute_rating", return_value=0.10):
+        _registry["update-candidate-rating"](candidate_id=c.pk)
+    c.refresh_from_db()
+    assert c.rating_below_threshold_since is None
+
+
+@pytest.mark.django_db
+def test_blacklist_history_has_no_lifted_at(candidate: Candidate) -> None:
+    from django.utils import timezone
+    entry = BlacklistHistory.objects.create(
+        candidate=candidate,
+        blacklisted_at=timezone.now(),
+        rating_at_blacklist=Decimal("0.10"),
+    )
+    assert not hasattr(entry, "lifted_at")
+    assert not hasattr(entry, "rating_at_lift")
 
 
 # ── Polium home ───────────────────────────────────────────────────────────────
