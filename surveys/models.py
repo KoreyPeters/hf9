@@ -40,6 +40,7 @@ class SurveyResponse(models.Model):
     subject = GenericForeignKey("content_type", "object_id")
     created_at = models.DateTimeField(auto_now_add=True)
     submitted_at = models.DateTimeField(default=timezone.now)
+    submit_count = models.PositiveIntegerField(default=1)
 
     class Meta:
         indexes = [models.Index(fields=["content_type", "object_id"])]
