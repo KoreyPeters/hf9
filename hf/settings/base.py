@@ -106,7 +106,7 @@ AUTH_USER_MODEL = "accounts.Player"
 SITE_ID = 1
 
 LOGIN_URL = "/accounts/login/"
-LOGIN_REDIRECT_URL = "/"
+LOGIN_REDIRECT_URL = "/polium/"
 
 AUTHENTICATION_BACKENDS = [
     "django.contrib.auth.backends.ModelBackend",

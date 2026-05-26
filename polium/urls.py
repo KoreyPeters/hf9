@@ -5,6 +5,9 @@ from . import views
 app_name = "polium"
 
 urlpatterns = [
+    path("", views.polium_home, name="home"),
+    path("jurisdictions/search/", views.jurisdiction_search, name="jurisdiction_search"),
+    path("jurisdictions/follow/", views.follow_jurisdiction, name="follow_jurisdiction"),
     path("candidates/<str:sqid>/", views.candidate_detail, name="candidate_detail"),
     path("elections/<str:sqid>/", views.election_detail, name="election_detail"),
     path("jurisdictions/<str:sqid>/", views.jurisdiction_detail, name="jurisdiction_detail"),

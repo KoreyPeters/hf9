@@ -99,8 +99,39 @@ def signup(request: HttpRequest) -> HttpResponse:
     from .email_verification import send_verification_email
     send_verification_email(request, player)
 
+    from datetime import timedelta
+    from django.utils import timezone
+    from core.tasks import enqueue
+    enqueue(
+        "verify-email-reminder",
+        {"player_id": player.pk},
+        schedule_time=timezone.now() + timedelta(days=7),
+    )
+
     login(request, player, backend="django.contrib.auth.backends.ModelBackend")
-    return redirect(settings.LOGIN_REDIRECT_URL)
+    return redirect("accounts:welcome")
+
+
+@login_required
+def welcome(request: HttpRequest) -> HttpResponse:
+    return render(request, "accounts/welcome.html")
+
+
+@login_required
+@require_POST
+def resend_verification(request: HttpRequest) -> HttpResponse:
+    from .ratelimit import check_rate_limit
+    if not check_rate_limit(request, "resend_verification", limit=3):
+        return render(
+            request,
+            "accounts/verify_email_resent.html",
+            {"error": "Too many requests. Try again later.", "email": request.user.email},
+        )
+    if request.user.email_verified:
+        return redirect(settings.LOGIN_REDIRECT_URL)
+    from .email_verification import send_verification_email
+    send_verification_email(request, request.user)
+    return render(request, "accounts/verify_email_resent.html", {"email": request.user.email})
 
 
 def verify_email(request: HttpRequest, token: str) -> HttpResponse:

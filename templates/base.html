@@ -9,6 +9,15 @@
   {% block extra_head %}{% endblock %}
 </head>
 <body>
+  {% if user.is_authenticated and not user.email_verified %}
+  <div id="verify-banner" style="background:#fffbeb;border-bottom:1px solid #f59e0b;padding:.6rem 1.5rem;font-size:.875rem;text-align:center;color:#78350f">
+    Verify your email to start earning points. Check your inbox for a link from Human Flourishing.
+    <form method="post" action="{% url 'accounts:resend_verification' %}" style="display:inline">
+      {% csrf_token %}
+      <button type="submit" style="margin-left:.75rem;background:none;border:none;color:#92400e;font-weight:500;cursor:pointer;font-size:.875rem;text-decoration:underline;padding:0">Resend</button>
+    </form>
+  </div>
+  {% endif %}
   {% block content %}{% endblock %}
 </body>
 </html>
