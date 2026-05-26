@@ -6,7 +6,7 @@
   <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:1.5rem">
     <h1 style="font-family:Georgia,serif;font-weight:normal;margin:0">Polium</h1>
     {% if user.is_authenticated %}
-    <span style="font-size:.875rem;color:#888">{{ user.display_name|default:user.username }}</span>
+    <span style="font-size:.875rem;color:#888">{{ user.display_label }}</span>
     {% else %}
     <a href="{% url 'accounts:signup' %}" style="font-size:.875rem;color:#1a1a1a">Sign up to earn points</a>
     {% endif %}

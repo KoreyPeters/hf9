@@ -228,3 +228,54 @@ def test_reminder_task_sends_for_unverified_player_within_window(unverified_play
     _registry["verify-email-reminder"](player_id=unverified_player.pk)
     assert len(mail.outbox) == 1
     assert mail.outbox[0].to == [unverified_player.email]
+
+
+# ── Player display label ───────────────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_display_label_format(player):
+    assert player.sqid is not None
+    assert player.display_label == f"{player.display_name} #{player.sqid[:4]}"
+
+
+@pytest.mark.django_db
+def test_display_label_fallback_to_username(db):
+    from accounts.models import Player
+    from accounts.utils import generate_username
+    p = Player.objects.create_user(username=generate_username(), email="ndn@example.com", password=None)
+    assert p.display_name == ""
+    assert p.display_label == f"{p.username} #{p.sqid[:4]}"
+
+
+def test_display_label_no_sqid():
+    from accounts.models import Player
+    p = Player(display_name="Jane", username="jane", sqid=None)
+    assert p.display_label == "Jane"
+
+
+# ── Player profile page ────────────────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_player_profile_anonymous_returns_200(client, player):
+    resp = client.get(f"/accounts/profile/{player.sqid}/")
+    assert resp.status_code == 200
+
+
+@pytest.mark.django_db
+def test_player_profile_contains_display_label(client, player):
+    resp = client.get(f"/accounts/profile/{player.sqid}/")
+    assert player.display_label.encode() in resp.content
+
+
+@pytest.mark.django_db
+def test_player_profile_authenticated_owner_sees_own_profile_flag(client, player):
+    client.force_login(player)
+    resp = client.get(f"/accounts/profile/{player.sqid}/")
+    assert resp.status_code == 200
+    assert b"your profile" in resp.content
+
+
+@pytest.mark.django_db
+def test_player_profile_unknown_sqid_returns_404(client):
+    resp = client.get("/accounts/profile/xxxx/")
+    assert resp.status_code == 404

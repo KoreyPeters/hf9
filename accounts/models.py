@@ -19,6 +19,12 @@ class Player(SqidMixin, AbstractUser):
         sqids = Sqids(alphabet=settings.SQID_SALTS["player"])
         return sqids.encode([self.pk])
 
+    @property
+    def display_label(self) -> str:
+        name = self.display_name or self.username
+        fragment = (self.sqid or "")[:4]
+        return f"{name} #{fragment}" if fragment else name
+
     class Meta:
         indexes = [models.Index(fields=["total_points"])]
 
