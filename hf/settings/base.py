@@ -155,6 +155,9 @@ WEBAUTHN_RP_ID = config("WEBAUTHN_RP_ID", default="localhost")
 WEBAUTHN_RP_NAME = "Human Flourishing"
 WEBAUTHN_ORIGIN = config("WEBAUTHN_ORIGIN", default="http://localhost:8000")
 
+BLACKLIST_RATIO = config("BLACKLIST_RATIO", default=0.50, cast=float)
+BLACKLIST_SUSTAINED_DAYS = config("BLACKLIST_SUSTAINED_DAYS", default=90, cast=int)
+
 GCP_PROJECT = config("GCP_PROJECT", default="")
 GCP_REGION = config("GCP_REGION", default="us-central1")
 CLOUD_TASKS_QUEUE = config("CLOUD_TASKS_QUEUE", default="hf-tasks")

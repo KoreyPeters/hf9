@@ -1,0 +1,63 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>Confirm blacklisting</h1>
+
+{% if skipped %}
+<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:4px;padding:1rem;margin-bottom:1.5rem">
+  <strong>The following candidates were skipped — conditions not met:</strong>
+  <ul style="margin:.5rem 0 0">
+    {% for candidate, issues in skipped %}
+    <li><strong>{{ candidate.name }}</strong> — {{ issues|join:", " }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if eligible %}
+<p>The following candidates meet all three conditions for permanent blacklisting:</p>
+<ul>
+  {% for candidate in eligible %}
+  <li>
+    <strong>{{ candidate.name }}</strong> —
+    current rating {{ candidate.current_rating }},
+    threshold {{ candidate.blacklist_threshold|floatformat:2 }},
+    below threshold since {{ candidate.rating_below_threshold_since|date:"Y-m-d" }}
+    ({{ candidate.days_below }} day{{ candidate.days_below|pluralize }})
+  </li>
+  {% endfor %}
+</ul>
+
+<div style="background:#f8d7da;border:1px solid #f5c6cb;border-radius:4px;padding:1rem;margin:1.5rem 0">
+  <strong>Blacklisting is permanent and cannot be undone.</strong>
+  Endorsement will be permanently revoked. This action must be publicly documented.
+</div>
+
+<form method="post">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="initiate_blacklisting">
+  <input type="hidden" name="apply" value="1">
+  {% for candidate in eligible %}
+  <input type="hidden" name="candidate_ids" value="{{ candidate.pk }}">
+  {% endfor %}
+
+  <p>
+    <label for="forum_discussion_url"><strong>Forum discussion URL</strong> (required — link to the community deliberation):</label><br>
+    <input type="url" name="forum_discussion_url" id="forum_discussion_url" required
+           style="width:100%;max-width:600px;padding:.4rem .6rem;margin-top:.25rem">
+  </p>
+  <p>
+    <label for="reason"><strong>Reason</strong> (brief public statement):</label><br>
+    <textarea name="reason" id="reason" rows="3"
+              style="width:100%;max-width:600px;padding:.4rem .6rem;margin-top:.25rem"></textarea>
+  </p>
+
+  <button type="submit" style="background:#dc3545;color:#fff;border:none;padding:.5rem 1.25rem;border-radius:4px;cursor:pointer;font-size:.95rem">
+    Confirm permanent blacklisting
+  </button>
+  <a href=".." style="margin-left:1rem">Cancel</a>
+</form>
+
+{% else %}
+<p>No eligible candidates selected. <a href="..">Return to list</a></p>
+{% endif %}
+{% endblock %}
