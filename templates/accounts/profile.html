@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ profile_player.display_label }} — Human Flourishing{% endblock %}
+{% block content %}
+<main style="max-width:640px;margin:4rem auto;padding:0 1.5rem;font-family:system-ui,sans-serif">
+
+  <div style="display:flex;align-items:center;gap:1.25rem;margin-bottom:2rem">
+    <div style="width:56px;height:56px;border-radius:50%;background:#e5e7eb;display:flex;align-items:center;justify-content:center;font-size:1.5rem;color:#6b7280;font-weight:500;flex-shrink:0">
+      {{ profile_player.display_name|first|upper|default:"?" }}
+    </div>
+    <div>
+      <h1 style="font-family:Georgia,serif;font-weight:normal;margin:0;font-size:1.5rem">{{ profile_player.display_label }}</h1>
+      <p style="margin:.25rem 0 0;font-size:.875rem;color:#9ca3af">Member since {{ profile_player.date_joined|date:"N Y" }}</p>
+    </div>
+  </div>
+
+  <dl style="display:grid;grid-template-columns:max-content 1fr;gap:.5rem 1.5rem;font-size:.9375rem">
+    <dt style="color:#6b7280">Points</dt>
+    <dd style="margin:0;font-weight:500">{{ profile_player.total_points }}</dd>
+  </dl>
+
+  {% if is_own_profile %}
+  <p style="margin-top:2rem;font-size:.875rem;color:#9ca3af">
+    This is your profile. Display name editing coming soon.
+  </p>
+  {% endif %}
+
+</main>
+{% endblock %}

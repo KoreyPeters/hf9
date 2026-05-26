@@ -4,7 +4,7 @@ from django.conf import settings
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse, JsonResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from sesame.views import LoginView as SesameLoginView
@@ -141,6 +141,14 @@ def verify_email(request: HttpRequest, token: str) -> HttpResponse:
     except VerificationError as e:
         return render(request, "accounts/verify_email_error.html", {"error": str(e)})
     return render(request, "accounts/verify_email_success.html")
+
+
+def player_profile(request: HttpRequest, sqid: str) -> HttpResponse:
+    player = get_object_or_404(Player, sqid=sqid)
+    return render(request, "accounts/profile.html", {
+        "profile_player": player,
+        "is_own_profile": request.user.is_authenticated and request.user.pk == player.pk,
+    })
 
 
 @csrf_exempt
