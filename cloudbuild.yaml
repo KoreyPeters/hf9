@@ -1,0 +1,86 @@
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - $_IMAGE:$SHORT_SHA
+      - -t
+      - $_IMAGE:latest
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - $_IMAGE
+    waitFor:
+      - build
+
+  - id: migrate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud run jobs update hf-migrate \
+          --image $_IMAGE:$SHORT_SHA \
+          --region $_REGION \
+          --service-account hf-app@$PROJECT_ID.iam.gserviceaccount.com \
+          --quiet
+        gcloud run jobs execute hf-migrate \
+          --region $_REGION \
+          --wait
+    waitFor:
+      - push
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    args:
+      - run
+      - services
+      - update
+      - hf-app
+      - --image=$_IMAGE:$SHORT_SHA
+      - --region=$_REGION
+      - --no-traffic
+      - --quiet
+    waitFor:
+      - migrate
+
+  - id: smoke
+    name: gcr.io/cloud-builders/curl
+    args:
+      - --silent
+      - --fail
+      - --max-time
+      - "30"
+      - --retry
+      - "3"
+      - --retry-delay
+      - "10"
+      - https://humanflourish.ing/
+    waitFor:
+      - deploy
+
+  - id: cutover
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    args:
+      - run
+      - services
+      - update-traffic
+      - hf-app
+      - --to-latest
+      - --region=$_REGION
+      - --quiet
+    waitFor:
+      - smoke
+
+substitutions:
+  _IMAGE: us-central1-docker.pkg.dev/human-flourishing-4/hf/hf-app
+  _REGION: us-central1
+
+options:
+  serviceAccount: projects/human-flourishing-4/serviceAccounts/hf-cloudbuild@human-flourishing-4.iam.gserviceaccount.com
+  logging: CLOUD_LOGGING_ONLY

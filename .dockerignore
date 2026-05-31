@@ -1,0 +1,11 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.idea/
+.git/
+local_only/
+terraform/
+db.sqlite3
+staticfiles/
