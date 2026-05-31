@@ -8,7 +8,13 @@ WORKDIR /app
 COPY . .
 
 RUN pip install uv && uv sync --no-dev
+RUN chmod +x /app/start.sh /app/migrate.sh
+
+ARG DJANGO_SECRET_KEY=build-time-placeholder
+ENV SECRET_KEY=${DJANGO_SECRET_KEY}
+ENV DJANGO_SETTINGS_MODULE=hf.settings.dev
 RUN python manage.py collectstatic --noinput
+ENV SECRET_KEY=
 
 RUN mkdir -p /data
 VOLUME /data
