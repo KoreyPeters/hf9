@@ -8,6 +8,7 @@ litestream restore \
   "gcs://${LITESTREAM_GCS_BUCKET}/hf/db"
 
 python manage.py migrate --noinput
+python manage.py ensure_superuser
 
 exec litestream replicate \
   -config /app/litestream.yml \
