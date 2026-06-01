@@ -9,12 +9,12 @@ resource "google_cloud_scheduler_job" "check_deprecations" {
   depends_on = [google_project_service.apis]
 
   http_target {
-    uri         = "${google_cloud_run_v2_service.app.uri}/tasks/check-deprecations/"
+    uri         = "https://humanflourish.ing/tasks/check-deprecations/"
     http_method = "POST"
 
     oidc_token {
       service_account_email = google_service_account.tasks.email
-      audience              = google_cloud_run_v2_service.app.uri
+      audience              = "https://humanflourish.ing"
     }
   }
 }
@@ -30,12 +30,12 @@ resource "google_cloud_scheduler_job" "check_deletions" {
   depends_on = [google_project_service.apis]
 
   http_target {
-    uri         = "${google_cloud_run_v2_service.app.uri}/tasks/check-deletions/"
+    uri         = "https://humanflourish.ing/tasks/check-deletions/"
     http_method = "POST"
 
     oidc_token {
       service_account_email = google_service_account.tasks.email
-      audience              = google_cloud_run_v2_service.app.uri
+      audience              = "https://humanflourish.ing"
     }
   }
 }
