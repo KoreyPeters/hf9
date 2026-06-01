@@ -1,14 +1,18 @@
 resource "google_cloud_run_v2_service" "app" {
-  name     = "hf-app"
-  location = var.region
-  ingress  = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
+  name                = "hf-app"
+  location            = var.region
+  ingress             = "INGRESS_TRAFFIC_ALL"
+  deletion_protection = false
 
   depends_on = [google_project_service.apis]
 
   template {
-    max_instance_count = 1
-    min_instance_count = 0
-    service_account    = google_service_account.app.email
+    service_account = google_service_account.app.email
+
+    scaling {
+      max_instance_count = 1
+      min_instance_count = 0
+    }
 
     volumes {
       name = "data"
@@ -57,8 +61,8 @@ resource "google_cloud_run_v2_service" "app" {
       }
 
       startup_probe {
-        http_get {
-          path = "/"
+        tcp_socket {
+          port = 8080
         }
         initial_delay_seconds = 30
         period_seconds        = 5
@@ -69,8 +73,9 @@ resource "google_cloud_run_v2_service" "app" {
 }
 
 resource "google_cloud_run_v2_job" "migrate" {
-  name     = "hf-migrate"
-  location = var.region
+  name                = "hf-migrate"
+  location            = var.region
+  deletion_protection = false
 
   depends_on = [google_project_service.apis]
 
@@ -119,6 +124,14 @@ resource "google_cloud_run_v2_job" "migrate" {
       }
     }
   }
+}
+
+resource "google_cloud_run_v2_service_iam_member" "public_invoker" {
+  project  = var.project
+  location = var.region
+  name     = google_cloud_run_v2_service.app.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
 }
 
 resource "google_cloud_run_v2_service_iam_member" "app_invoker" {
