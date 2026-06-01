@@ -1,13 +1,23 @@
 steps:
+  - id: pull-cache
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - docker pull $_IMAGE:latest || true
+
   - id: build
     name: gcr.io/cloud-builders/docker
     args:
       - build
+      - --cache-from=$_IMAGE:latest
       - -t
       - $_IMAGE:$SHORT_SHA
       - -t
       - $_IMAGE:latest
       - .
+    waitFor:
+      - pull-cache
 
   - id: push
     name: gcr.io/cloud-builders/docker
@@ -37,6 +47,7 @@ steps:
 
   - id: deploy
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
     args:
       - run
       - services
@@ -66,6 +77,7 @@ steps:
 
   - id: cutover
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
     args:
       - run
       - services
