@@ -71,7 +71,7 @@ steps:
       - "3"
       - --retry-delay
       - "10"
-      - https://humanflourish.ing/
+      - $_APP_URL/
     waitFor:
       - deploy
 
@@ -92,6 +92,7 @@ steps:
 substitutions:
   _IMAGE: us-central1-docker.pkg.dev/human-flourishing-4/hf/hf-app
   _REGION: us-central1
+  _APP_URL: https://hf-app-cncfwwwe3q-uc.a.run.app
 
 options:
   logging: CLOUD_LOGGING_ONLY
