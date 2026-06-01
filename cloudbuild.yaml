@@ -82,5 +82,4 @@ substitutions:
   _REGION: us-central1
 
 options:
-  serviceAccount: projects/human-flourishing-4/serviceAccounts/hf-cloudbuild@human-flourishing-4.iam.gserviceaccount.com
   logging: CLOUD_LOGGING_ONLY
