@@ -92,7 +92,7 @@ steps:
 substitutions:
   _IMAGE: us-central1-docker.pkg.dev/human-flourishing-4/hf/hf-app
   _REGION: us-central1
-  _APP_URL: https://hf-app-cncfwwwe3q-uc.a.run.app
+  _APP_URL: https://hf-app-579421313103.us-central1.run.app
 
 options:
   logging: CLOUD_LOGGING_ONLY
