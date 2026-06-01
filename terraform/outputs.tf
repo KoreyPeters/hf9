@@ -2,11 +2,6 @@ output "cloud_run_url" {
   value = google_cloud_run_v2_service.app.uri
 }
 
-output "load_balancer_ip" {
-  value       = google_compute_global_address.default.address
-  description = "Set as the DNS A record for humanflourish.ing"
-}
-
 output "artifact_registry_url" {
   value = "${var.region}-docker.pkg.dev/${var.project}/${google_artifact_registry_repository.hf.repository_id}"
 }

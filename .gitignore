@@ -222,3 +222,7 @@ __marimo__/
 
 local_only/
 CLAUDE.local.md
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
