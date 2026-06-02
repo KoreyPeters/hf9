@@ -1,0 +1,11 @@
+<div id="flag-results" style="display:flex;flex-direction:column;gap:.25rem">
+  {% for j in results %}
+  <button type="button"
+          data-sqid="{{ j.sqid }}"
+          data-jname="{{ j.name }}"
+          data-on:click="$flag_target_sqid=el.dataset.sqid; $flag_target_name=el.dataset.jname; $flag_q=''"
+          style="width:100%;text-align:left;padding:.4rem .6rem;border:1px solid #e5e7eb;border-radius:4px;background:#fff;cursor:pointer;font-size:.875rem">
+    {{ j.name }} <span style="color:#9ca3af;font-size:.8rem">({{ j.level }})</span>
+  </button>
+  {% endfor %}
+</div>

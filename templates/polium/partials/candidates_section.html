@@ -1,0 +1,96 @@
+<div id="candidates-section"
+     data-signals='{"candidate_name": "", "candidate_office": "", "candidate_election_id": "", "candidate_external_reference": "", "candidate_bio": ""}'>
+
+  {% if candidates %}
+  {% regroup candidates by is_blacklisted as grouped %}
+  <div style="display:flex;flex-direction:column;gap:.5rem;margin-bottom:1.5rem">
+    {% for group in grouped %}
+      {% if group.grouper %}
+      <p style="font-size:.8rem;color:#9ca3af;margin:.5rem 0 .25rem">Blacklisted candidates</p>
+      {% endif %}
+      {% for candidate in group.list %}
+      <a href="{% url 'polium:candidate_detail' candidate.sqid %}"
+         style="display:flex;justify-content:space-between;align-items:center;padding:.75rem 1rem;border:1px solid {% if candidate.is_blacklisted %}#fca5a5{% else %}#e5e7eb{% endif %};border-radius:6px;text-decoration:none;color:#111">
+        <div>
+          <div style="font-weight:500;font-size:.9rem">{{ candidate.name }}</div>
+          <div style="font-size:.8rem;color:#6b7280;margin-top:.2rem">{{ candidate.office }}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;margin-left:1rem">
+          <div style="font-size:.875rem;font-weight:600;color:{% if candidate.is_blacklisted %}#991b1b{% else %}#111{% endif %}">
+            {{ candidate.current_rating }}%
+          </div>
+          {% if candidate.is_blacklisted %}
+          <div style="font-size:.75rem;color:#991b1b">Blacklisted</div>
+          {% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    {% endfor %}
+  </div>
+  {% else %}
+  <p style="color:#9ca3af;font-size:.875rem;margin:0 0 1rem">No candidates recorded yet.</p>
+  {% endif %}
+
+  {% if user.is_authenticated and is_active %}
+    {% if show_form %}
+    <div style="border:1px solid #e5e7eb;border-radius:6px;padding:1.25rem;background:#f9fafb">
+      <h4 style="font-size:.875rem;font-weight:600;color:#374151;margin:0 0 1rem">Add candidate</h4>
+      {% if error %}
+      <p style="color:#b91c1c;font-size:.8rem;margin:0 0 .75rem">{{ error }}</p>
+      {% endif %}
+      <div style="display:flex;flex-direction:column;gap:.75rem">
+        <div>
+          <label style="display:block;font-size:.8rem;color:#6b7280;margin-bottom:.3rem">Name <span style="color:#b91c1c">*</span></label>
+          <input type="text" data-bind:candidate_name autocomplete="off"
+                 style="width:100%;padding:.5rem .7rem;border:1px solid #d1d5db;border-radius:4px;font-size:.875rem;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="display:block;font-size:.8rem;color:#6b7280;margin-bottom:.3rem">Office <span style="color:#b91c1c">*</span></label>
+          <input type="text" data-bind:candidate_office placeholder="e.g. Senator, City Councillor…"
+                 style="width:100%;padding:.5rem .7rem;border:1px solid #d1d5db;border-radius:4px;font-size:.875rem;box-sizing:border-box">
+        </div>
+        {% if elections_for_form %}
+        <div>
+          <label style="display:block;font-size:.8rem;color:#6b7280;margin-bottom:.3rem">Election <span style="color:#9ca3af">(optional)</span></label>
+          <select data-bind:candidate_election_id
+                  style="width:100%;padding:.5rem .7rem;border:1px solid #d1d5db;border-radius:4px;font-size:.875rem;box-sizing:border-box">
+            <option value="">— none —</option>
+            {% for election in elections_for_form %}
+            <option value="{{ election.pk }}">{{ election.name }} ({{ election.election_date }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        <div>
+          <label style="display:block;font-size:.8rem;color:#6b7280;margin-bottom:.3rem">Official page URL <span style="color:#9ca3af">(optional)</span></label>
+          <input type="url" data-bind:candidate_external_reference placeholder="https://…"
+                 style="width:100%;padding:.5rem .7rem;border:1px solid #d1d5db;border-radius:4px;font-size:.875rem;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="display:block;font-size:.8rem;color:#6b7280;margin-bottom:.3rem">Bio <span style="color:#9ca3af">(optional)</span></label>
+          <textarea data-bind:candidate_bio rows="3"
+                    style="width:100%;padding:.5rem .7rem;border:1px solid #d1d5db;border-radius:4px;font-size:.875rem;box-sizing:border-box;resize:vertical"></textarea>
+        </div>
+        <div style="display:flex;gap:.5rem">
+          <button data-on:click="@post('{% url 'polium:add_candidate' jurisdiction.sqid %}')"
+                  data-indicator:_candidate_saving
+                  data-attr:disabled="$_candidate_saving"
+                  style="padding:.5rem 1.1rem;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:.875rem">
+            Save
+          </button>
+          <button data-on:click="@get('{% url 'polium:candidates_section' jurisdiction.sqid %}')"
+                  style="padding:.5rem .9rem;border:1px solid #e5e7eb;border-radius:4px;background:#fff;cursor:pointer;font-size:.875rem;color:#374151">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <button data-on:click="@get('{% url 'polium:add_candidate_form' jurisdiction.sqid %}')"
+            style="font-size:.875rem;color:#1d4ed8;background:none;border:none;cursor:pointer;padding:0">
+      + Add candidate
+    </button>
+    {% endif %}
+  {% endif %}
+
+</div>

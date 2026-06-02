@@ -1,0 +1,32 @@
+<div id="follow-section" data-signals='{"follow_depth": "all"}'>
+  {% if user.is_authenticated %}
+    {% if is_following %}
+    <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+      <span style="font-size:.875rem;color:#6b7280">
+        Following
+        {% if follow_depth == "all" %}(this level and below){% elif follow_depth == "this" %}(this level only){% endif %}
+      </span>
+      <button data-on:click="@post('{% url 'polium:jurisdiction_unfollow_detail' jurisdiction.sqid %}')"
+              data-indicator:_follow_loading
+              data-attr:disabled="$_follow_loading"
+              style="padding:.4rem .9rem;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;font-size:.875rem;color:#374151">
+        Unfollow
+      </button>
+    </div>
+    {% elif is_active %}
+    <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
+      <select data-bind:follow_depth
+              style="padding:.4rem .6rem;border:1px solid #d1d5db;border-radius:4px;font-size:.875rem;color:#374151">
+        <option value="all">This level and below</option>
+        <option value="this">This level only</option>
+      </select>
+      <button data-on:click="@post('{% url 'polium:jurisdiction_follow_detail' jurisdiction.sqid %}')"
+              data-indicator:_follow_loading
+              data-attr:disabled="$_follow_loading"
+              style="padding:.4rem .9rem;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:.875rem">
+        Follow
+      </button>
+    </div>
+    {% endif %}
+  {% endif %}
+</div>

@@ -1,0 +1,43 @@
+<div id="flag-section"
+     data-signals='{"flag_q": "", "flag_target_sqid": "", "flag_target_name": ""}'>
+  {% if user.is_authenticated and is_active %}
+    {% if already_flagged %}
+    <p style="font-size:.875rem;color:#6b7280;margin:0">
+      You have flagged this jurisdiction as a duplicate of
+      <strong>{{ flagged_target.name }}</strong>.
+    </p>
+    {% elif not is_mature %}
+    <p style="font-size:.875rem;color:#9ca3af;margin:0">
+      Flagging as a duplicate requires an account at least 7 days old with 3 surveys submitted.
+    </p>
+    {% else %}
+    <div>
+      <h3 style="font-size:.9rem;font-weight:600;color:#374151;margin:0 0 .75rem">Flag as duplicate</h3>
+      {% if error %}
+      <p style="color:#b91c1c;font-size:.8rem;margin:0 0 .5rem">{{ error }}</p>
+      {% endif %}
+      <input type="text"
+             data-bind:flag_q
+             data-on:input__debounce.300ms="@get('{% url 'polium:jurisdiction_search_flag' %}?exclude={{ jurisdiction.sqid }}')"
+             placeholder="Search for the correct jurisdiction…"
+             autocomplete="off"
+             style="width:100%;padding:.5rem .7rem;border:1px solid #d1d5db;border-radius:4px;font-size:.875rem;box-sizing:border-box;margin-bottom:.5rem">
+      <div id="flag-results" style="display:flex;flex-direction:column;gap:.25rem;margin-bottom:.75rem"></div>
+      <p data-show="$flag_target_sqid !== ''"
+         style="font-size:.875rem;color:#374151;margin:0 0 .5rem">
+        Selected: <strong data-text="$flag_target_name"></strong>
+        <button type="button"
+                data-on:click="$flag_target_sqid = ''; $flag_target_name = ''"
+                style="margin-left:.5rem;background:none;border:none;color:#9ca3af;cursor:pointer;font-size:.875rem;padding:0">✕</button>
+      </p>
+      <button data-on:click="@post('{% url 'polium:flag_jurisdiction_duplicate' jurisdiction.sqid %}')"
+              data-show="$flag_target_sqid !== ''"
+              data-indicator:_flag_loading
+              data-attr:disabled="$_flag_loading"
+              style="padding:.4rem .9rem;background:#dc2626;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:.875rem">
+        Flag as duplicate
+      </button>
+    </div>
+    {% endif %}
+  {% endif %}
+</div>

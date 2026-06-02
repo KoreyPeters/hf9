@@ -4,6 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Human Flourishing{% endblock %}</title>
+  <script>
+    (function () {
+      var _fetch = window.fetch;
+      window.fetch = function (url, init) {
+        init = init || {};
+        var method = (init.method || 'GET').toUpperCase();
+        if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+          var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+          if (m) {
+            init.headers = Object.assign({'X-CSRFToken': decodeURIComponent(m[1])}, init.headers || {});
+          }
+        }
+        return _fetch.call(this, url, init);
+      };
+    })();
+  </script>
   <script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.1/bundles/datastar.js"></script>
   <link rel="manifest" href="/manifest.json">
   {% block extra_head %}{% endblock %}

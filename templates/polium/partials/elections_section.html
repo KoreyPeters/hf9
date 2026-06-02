@@ -1,0 +1,79 @@
+<div id="elections-section"
+     data-signals='{"election_name": "", "election_date": "", "election_external_reference": ""}'>
+
+  {% if upcoming_elections %}
+  <h3 style="font-size:.9rem;font-weight:600;color:#374151;margin:0 0 .75rem">Upcoming elections</h3>
+  <div style="display:flex;flex-direction:column;gap:.5rem;margin-bottom:1.5rem">
+    {% for election in upcoming_elections %}
+    <a href="{% url 'polium:election_detail' election.sqid %}"
+       style="display:block;padding:.75rem 1rem;border:1px solid #e5e7eb;border-radius:6px;text-decoration:none;color:#111">
+      <div style="font-weight:500;font-size:.9rem">{{ election.name }}</div>
+      <div style="font-size:.8rem;color:#6b7280;margin-top:.2rem">{{ election.election_date }}</div>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if past_elections %}
+  <h3 style="font-size:.9rem;font-weight:600;color:#9ca3af;margin:0 0 .75rem">Past elections</h3>
+  <div style="display:flex;flex-direction:column;gap:.5rem;margin-bottom:1.5rem">
+    {% for election in past_elections %}
+    <a href="{% url 'polium:election_detail' election.sqid %}"
+       style="display:block;padding:.75rem 1rem;border:1px solid #f3f4f6;border-radius:6px;text-decoration:none;color:#6b7280">
+      <div style="font-size:.9rem">{{ election.name }}</div>
+      <div style="font-size:.8rem;margin-top:.2rem">{{ election.election_date }}</div>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if not upcoming_elections and not past_elections %}
+  <p style="color:#9ca3af;font-size:.875rem;margin:0 0 1rem">No elections recorded yet.</p>
+  {% endif %}
+
+  {% if user.is_authenticated and is_active %}
+    {% if show_form %}
+    <div style="border:1px solid #e5e7eb;border-radius:6px;padding:1.25rem;background:#f9fafb">
+      <h4 style="font-size:.875rem;font-weight:600;color:#374151;margin:0 0 1rem">Add election</h4>
+      {% if error %}
+      <p style="color:#b91c1c;font-size:.8rem;margin:0 0 .75rem">{{ error }}</p>
+      {% endif %}
+      <div style="display:flex;flex-direction:column;gap:.75rem">
+        <div>
+          <label style="display:block;font-size:.8rem;color:#6b7280;margin-bottom:.3rem">Name <span style="color:#b91c1c">*</span></label>
+          <input type="text" data-bind:election_name autocomplete="off"
+                 style="width:100%;padding:.5rem .7rem;border:1px solid #d1d5db;border-radius:4px;font-size:.875rem;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="display:block;font-size:.8rem;color:#6b7280;margin-bottom:.3rem">Election date <span style="color:#b91c1c">*</span></label>
+          <input type="date" data-bind:election_date
+                 style="width:100%;padding:.5rem .7rem;border:1px solid #d1d5db;border-radius:4px;font-size:.875rem;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="display:block;font-size:.8rem;color:#6b7280;margin-bottom:.3rem">Official page URL <span style="color:#9ca3af">(optional)</span></label>
+          <input type="url" data-bind:election_external_reference placeholder="https://…"
+                 style="width:100%;padding:.5rem .7rem;border:1px solid #d1d5db;border-radius:4px;font-size:.875rem;box-sizing:border-box">
+        </div>
+        <div style="display:flex;gap:.5rem">
+          <button data-on:click="@post('{% url 'polium:add_election' jurisdiction.sqid %}')"
+                  data-indicator:_election_saving
+                  data-attr:disabled="$_election_saving"
+                  style="padding:.5rem 1.1rem;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:.875rem">
+            Save
+          </button>
+          <button data-on:click="@get('{% url 'polium:elections_section' jurisdiction.sqid %}')"
+                  style="padding:.5rem .9rem;border:1px solid #e5e7eb;border-radius:4px;background:#fff;cursor:pointer;font-size:.875rem;color:#374151">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <button data-on:click="@get('{% url 'polium:add_election_form' jurisdiction.sqid %}')"
+            style="font-size:.875rem;color:#1d4ed8;background:none;border:none;cursor:pointer;padding:0">
+      + Add election
+    </button>
+    {% endif %}
+  {% endif %}
+
+</div>
