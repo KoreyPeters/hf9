@@ -1,0 +1,52 @@
+<div id="search-results"
+     data-signals="{parent_sqid: '', parent_name: '', parent_q: ''}"
+     style="margin-top:.5rem">
+  <form method="post" action="{% url 'polium:create_jurisdiction' %}"
+        style="display:flex;flex-direction:column;gap:.75rem">
+    {% csrf_token %}
+    <div>
+      <label style="display:block;font-size:.875rem;color:#444;margin-bottom:.25rem">Name</label>
+      <input type="text" name="name" value="{{ name }}" required autocomplete="off"
+             style="width:100%;padding:.6rem .8rem;border:1px solid #ccc;border-radius:4px;font-size:.9rem;box-sizing:border-box">
+    </div>
+    <div>
+      <label style="display:block;font-size:.875rem;color:#444;margin-bottom:.25rem">Level</label>
+      <select name="level" required
+              style="width:100%;padding:.6rem .8rem;border:1px solid #ccc;border-radius:4px;font-size:.9rem;box-sizing:border-box">
+        <option value="">Select a level…</option>
+        <option value="country">Country</option>
+        <option value="province">State / Province / Territory</option>
+        <option value="region">County / District / Region</option>
+        <option value="city">City / Municipality / Borough</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+    <div>
+      <label style="display:block;font-size:.875rem;color:#444;margin-bottom:.25rem">Parent jurisdiction <span style="color:#9ca3af">(optional)</span></label>
+      <input type="text" placeholder="Search for parent…"
+             autocomplete="off"
+             data-bind:parent_q
+             data-on:input__debounce.300ms="@get('{% url 'polium:jurisdiction_search_parent' %}')"
+             style="width:100%;padding:.6rem .8rem;border:1px solid #ccc;border-radius:4px;font-size:.9rem;box-sizing:border-box">
+      <div id="parent-results" style="margin-top:.25rem;display:flex;flex-direction:column;gap:.25rem"></div>
+      <p data-show="$parent_name" style="font-size:.875rem;color:#374151;margin:.25rem 0 0">
+        Selected: <span data-text="$parent_name"></span>
+        <button type="button"
+                data-on:click="$parent_sqid=''; $parent_name=''"
+                style="margin-left:.5rem;background:none;border:none;color:#9ca3af;cursor:pointer;font-size:.875rem;padding:0">✕</button>
+      </p>
+      <input type="hidden" name="parent_sqid" data-bind:parent_sqid>
+    </div>
+    <div style="display:flex;gap:.5rem">
+      <button type="submit"
+              style="flex:1;padding:.6rem .8rem;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:.9rem">
+        Add jurisdiction
+      </button>
+      <button type="button"
+              data-on:click="@get('{% url 'polium:jurisdiction_search' %}')"
+              style="padding:.6rem .8rem;border:1px solid #e5e7eb;border-radius:4px;background:#fff;cursor:pointer;font-size:.9rem">
+        Cancel
+      </button>
+    </div>
+  </form>
+</div>

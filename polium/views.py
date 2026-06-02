@@ -1,10 +1,14 @@
 from datetime import date
 
+from datastar_py.django import DatastarResponse, ServerSentEventGenerator, read_signals
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.contenttypes.models import ContentType
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.db.models import F
+from django.db.models.functions import Greatest
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.views.decorators.http import require_POST
 
 from evidence.models import Evidence, EvidenceFlag
@@ -12,6 +16,8 @@ from evidence.service import AlreadyFlaggedError, NotMatureError, flag_evidence,
 from surveys.models import Criterion
 
 from .models import Candidate, Election, Jurisdiction, JurisdictionFollow
+
+_VALID_LEVELS = {"country", "province", "region", "city", "other"}
 
 
 def _get_descendant_ids(jurisdiction_id: int) -> set[int]:
@@ -70,18 +76,83 @@ def polium_home(request: HttpRequest) -> HttpResponse:
     })
 
 
-def jurisdiction_search(request: HttpRequest) -> JsonResponse:
-    q = request.GET.get("q", "").strip()
-    if len(q) < 2:
-        return JsonResponse({"results": []})
-    jurisdictions = list(
-        Jurisdiction.objects.filter(
-            name__icontains=q,
-            status=Jurisdiction.STATUS_ACTIVE,
+def jurisdiction_search(request: HttpRequest) -> DatastarResponse:
+    signals = read_signals(request) or {}
+    q = signals.get("q", "").strip()
+    results: list[dict[str, str]] = []
+    if len(q) >= 2:
+        results = list(
+            Jurisdiction.objects.filter(
+                name__icontains=q,
+                status=Jurisdiction.STATUS_ACTIVE,
+            ).values("sqid", "name", "level")[:10]
         )
-        .values("sqid", "name", "level")[:10]
+    html = render_to_string(
+        "polium/partials/search_results.html",
+        {"results": results, "q": q},
+        request=request,
     )
-    return JsonResponse({"results": jurisdictions})
+    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#search-results"))
+
+
+def jurisdiction_create_form(request: HttpRequest) -> DatastarResponse:
+    signals = read_signals(request) or {}
+    name = signals.get("q", "").strip()
+    html = render_to_string(
+        "polium/partials/create_form.html",
+        {"name": name},
+        request=request,
+    )
+    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#search-results"))
+
+
+def jurisdiction_search_parent(request: HttpRequest) -> DatastarResponse:
+    signals = read_signals(request) or {}
+    q = signals.get("parent_q", "").strip()
+    results: list[dict[str, str]] = []
+    if len(q) >= 2:
+        results = list(
+            Jurisdiction.objects.filter(
+                name__icontains=q,
+                status=Jurisdiction.STATUS_ACTIVE,
+            ).values("sqid", "name", "level")[:10]
+        )
+    html = render_to_string(
+        "polium/partials/parent_results.html",
+        {"results": results},
+        request=request,
+    )
+    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#parent-results"))
+
+
+@login_required
+@require_POST
+def create_jurisdiction(request: HttpRequest) -> HttpResponse:
+    name = request.POST.get("name", "").strip()
+    level = request.POST.get("level", "").strip()
+    parent_sqid = request.POST.get("parent_sqid", "").strip()
+
+    if not name or level not in _VALID_LEVELS:
+        messages.error(request, "Please provide a name and select a level.")
+        return redirect("polium:home")
+
+    parent = None
+    if parent_sqid:
+        parent = Jurisdiction.objects.filter(sqid=parent_sqid, status=Jurisdiction.STATUS_ACTIVE).first()
+
+    jurisdiction = Jurisdiction.objects.create(
+        name=name,
+        level=level,
+        parent=parent,
+        created_by=request.user,
+        active_engagement=1,
+    )
+    JurisdictionFollow.objects.create(
+        player=request.user,
+        jurisdiction=jurisdiction,
+        depth=JurisdictionFollow.DEPTH_ALL,
+    )
+    return redirect("polium:home")
 
 
 @login_required
@@ -92,11 +163,31 @@ def follow_jurisdiction(request: HttpRequest) -> HttpResponse:
     if depth not in (JurisdictionFollow.DEPTH_THIS, JurisdictionFollow.DEPTH_ALL):
         depth = JurisdictionFollow.DEPTH_ALL
     jurisdiction = get_object_or_404(Jurisdiction, sqid=sqid)
-    JurisdictionFollow.objects.get_or_create(
+    _, created = JurisdictionFollow.objects.get_or_create(
         player=request.user,
         jurisdiction=jurisdiction,
         defaults={"depth": depth},
     )
+    if created:
+        Jurisdiction.objects.filter(pk=jurisdiction.pk).update(
+            active_engagement=F("active_engagement") + 1
+        )
+    return redirect("polium:home")
+
+
+@login_required
+@require_POST
+def unfollow_jurisdiction(request: HttpRequest) -> HttpResponse:
+    sqid = request.POST.get("jurisdiction_sqid", "")
+    jurisdiction = get_object_or_404(Jurisdiction, sqid=sqid)
+    deleted, _ = JurisdictionFollow.objects.filter(
+        player=request.user,
+        jurisdiction=jurisdiction,
+    ).delete()
+    if deleted:
+        Jurisdiction.objects.filter(pk=jurisdiction.pk).update(
+            active_engagement=Greatest(F("active_engagement") - 1, 0)
+        )
     return redirect("polium:home")
 
 
