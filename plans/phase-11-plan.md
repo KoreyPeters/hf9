@@ -44,9 +44,9 @@ All subsequent steps depend on these being in place. These are one-time manual s
   ```dockerfile
   FROM python:3.12-slim
   WORKDIR /app
-  COPY pyproject.toml uv.lock ./
+  COPY ../pyproject.toml uv.lock ./
   RUN pip install uv && uv sync --frozen
-  COPY . .
+  COPY .. .
   RUN python manage.py collectstatic --noinput
   EXPOSE 8000
   CMD ["daphne", "-b", "0.0.0.0", "-p", "8000", "hf.asgi:application"]
