@@ -19,6 +19,11 @@
     </p>
   </div>
 
+  {# Election section #}
+  <div style="margin-bottom:1.5rem">
+    {% include "polium/partials/candidate_election_section.html" %}
+  </div>
+
   {# Blacklist notice #}
   {% if candidate.is_blacklisted %}
   <div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:6px;padding:1rem 1.25rem;margin-bottom:2rem">

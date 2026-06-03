@@ -242,12 +242,18 @@ def candidate_detail(request: HttpRequest, sqid: str) -> HttpResponse:
         if candidate.is_blacklisted else None
     )
     criteria = Criterion.objects.filter(is_active=True).order_by("category__name", "question")
+    elections_for_form: list[Election] = []
+    if candidate.jurisdiction_id:
+        elections_for_form = list(
+            Election.objects.filter(jurisdiction=candidate.jurisdiction).order_by("-election_date")
+        )
     return render(request, "polium/candidate_profile.html", {
         "candidate": candidate,
         "evidence_list": evidence_qs,
         "blacklist_record": blacklist_record,
         "criteria": criteria,
         "flag_reasons": EvidenceFlag.REASON_CHOICES,
+        "elections_for_form": elections_for_form,
     })
 
 
@@ -285,6 +291,82 @@ def evidence_flag(request: HttpRequest, pk: int) -> HttpResponse:
     except AlreadyFlaggedError:
         messages.error(request, "You have already flagged this evidence.")
     return redirect(request.META.get("HTTP_REFERER", "/"))
+
+
+def _candidate_election_ctx(candidate: Candidate, show_form: bool, error: str = "") -> dict[str, object]:
+    elections_for_form: list[Election] = []
+    if candidate.jurisdiction_id:
+        elections_for_form = list(
+            Election.objects.filter(jurisdiction=candidate.jurisdiction).order_by("-election_date")
+        )
+    return {
+        "candidate": candidate,
+        "elections_for_form": elections_for_form,
+        "show_form": show_form,
+        "error": error,
+    }
+
+
+def candidate_election_section(request: HttpRequest, sqid: str) -> DatastarResponse:
+    candidate = get_object_or_404(Candidate, sqid=sqid)
+    html = render_to_string(
+        "polium/partials/candidate_election_section.html",
+        _candidate_election_ctx(candidate, show_form=False),
+        request=request,
+    )
+    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#candidate-election-section"))
+
+
+@login_required
+def candidate_link_election_form(request: HttpRequest, sqid: str) -> DatastarResponse:
+    candidate = get_object_or_404(Candidate, sqid=sqid)
+    html = render_to_string(
+        "polium/partials/candidate_election_section.html",
+        _candidate_election_ctx(candidate, show_form=True),
+        request=request,
+    )
+    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#candidate-election-section"))
+
+
+@login_required
+@require_POST
+def candidate_link_election(request: HttpRequest, sqid: str) -> DatastarResponse:
+    candidate = get_object_or_404(Candidate, sqid=sqid)
+    signals = read_signals(request) or {}
+    election_id_str = str(signals.get("candidate_election_id", "")).strip()
+
+    error = ""
+    election: Election | None = None
+
+    if election_id_str:
+        try:
+            eid = int(election_id_str)
+            election = Election.objects.filter(pk=eid, jurisdiction=candidate.jurisdiction).first()
+            if election is None:
+                error = "Selected election does not belong to this jurisdiction."
+        except ValueError:
+            error = "Invalid election selection."
+
+    if error:
+        html = render_to_string(
+            "polium/partials/candidate_election_section.html",
+            _candidate_election_ctx(candidate, show_form=True, error=error),
+            request=request,
+        )
+        return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#candidate-election-section"))
+
+    candidate.election = election
+    candidate.save(update_fields=["election"])
+
+    html = render_to_string(
+        "polium/partials/candidate_election_section.html",
+        _candidate_election_ctx(candidate, show_form=False),
+        request=request,
+    )
+    return DatastarResponse([
+        ServerSentEventGenerator.patch_elements(html, selector="#candidate-election-section"),
+        ServerSentEventGenerator.patch_signals({"candidate_election_id": ""}),
+    ])
 
 
 def election_detail(request: HttpRequest, sqid: str) -> HttpResponse:
