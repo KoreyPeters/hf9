@@ -215,7 +215,7 @@ ADD https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VE
 RUN tar -C /usr/local/bin -xzf /tmp/litestream-*.tar.gz && rm /tmp/litestream-*.tar.gz
 
 WORKDIR /app
-COPY . .
+COPY .. .
 
 RUN pip install uv && uv sync --no-dev
 RUN python manage.py collectstatic --noinput

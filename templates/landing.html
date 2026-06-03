@@ -67,7 +67,7 @@
                 <h3>Spendium — The Purchasing Game</h3>
                 <p>Rate brands and products against ethical criteria. Shop ethically. Earn points proportional to the
                     store's ethics rating.</p>
-                <form id="notify-form" class="notify-form" data-on-submit="@post('{% url 'spendium:notify' %}', {contentType: 'form'})">
+                <form id="notify-form" class="notify-form" data-on:submit="@post('{% url 'spendium:notify' %}', {contentType: 'form'})">
                     <input type="email"
                            name="email"
                            required

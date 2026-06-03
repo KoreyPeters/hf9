@@ -1,3 +1,4 @@
+import json
 from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
@@ -5,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from core.tasks import _registry
-from polium.models import BlacklistHistory, Candidate, Election, Jurisdiction, JurisdictionFollow
+from polium.models import BlacklistHistory, Candidate, Election, Jurisdiction, JurisdictionDuplicateFlag, JurisdictionFollow
 
 
 @pytest.fixture
@@ -233,3 +234,470 @@ def test_authenticated_with_follows_no_elections_shows_no_elections_state(
     resp = client.get("/polium/")
     assert resp.status_code == 200
     assert b"No upcoming elections" in resp.content
+
+
+# ── Jurisdiction search (Datastar) ────────────────────────────────────────────
+
+def _datastar_get(client, url: str, signals: dict) -> bytes:
+    resp = client.get(
+        url,
+        data={"datastar": json.dumps(signals)},
+        headers={"Datastar-Request": "true"},
+    )
+    assert resp.status_code == 200
+    return b"".join(resp.streaming_content)
+
+
+@pytest.mark.django_db
+def test_jurisdiction_search_returns_results(client, jurisdiction: Jurisdiction) -> None:
+    body = _datastar_get(client, "/polium/jurisdictions/search/", {"q": "Test"})
+    assert b"Test Jurisdiction" in body
+
+
+@pytest.mark.django_db
+def test_jurisdiction_search_empty_query_returns_empty(client) -> None:
+    body = _datastar_get(client, "/polium/jurisdictions/search/", {"q": ""})
+    assert b"Test Jurisdiction" not in body
+
+
+@pytest.mark.django_db
+def test_jurisdiction_search_no_match_shows_add_option(client) -> None:
+    body = _datastar_get(client, "/polium/jurisdictions/search/", {"q": "Nonexistent Place"})
+    assert b"No jurisdictions found" in body
+    assert b"Add" in body
+
+
+# ── create_jurisdiction ───────────────────────────────────────────────────────
+
+@pytest.fixture
+def player(db):
+    from accounts.models import Player
+    from accounts.utils import generate_username
+    return Player.objects.create_user(
+        username=generate_username(), email="creator@example.com", password=None
+    )
+
+
+@pytest.mark.django_db
+def test_create_jurisdiction_requires_login(client) -> None:
+    resp = client.post("/polium/jurisdictions/create/", {"name": "New Place", "level": "city"})
+    assert resp.status_code == 302
+    assert "/login" in resp["Location"] or "login" in resp["Location"]
+
+
+@pytest.mark.django_db
+def test_create_jurisdiction_creates_and_follows(client, player) -> None:
+    client.force_login(player)
+    resp = client.post("/polium/jurisdictions/create/", {"name": "New City", "level": "city"})
+    assert resp.status_code == 302
+    j = Jurisdiction.objects.get(name="New City")
+    assert j.level == "city"
+    assert j.created_by == player
+    assert j.active_engagement == 1
+    assert JurisdictionFollow.objects.filter(player=player, jurisdiction=j).exists()
+
+
+@pytest.mark.django_db
+def test_create_jurisdiction_invalid_level_redirects(client, player) -> None:
+    client.force_login(player)
+    resp = client.post("/polium/jurisdictions/create/", {"name": "Bad", "level": "invalid"})
+    assert resp.status_code == 302
+    assert not Jurisdiction.objects.filter(name="Bad").exists()
+
+
+@pytest.mark.django_db
+def test_create_jurisdiction_with_parent(client, player, jurisdiction: Jurisdiction) -> None:
+    client.force_login(player)
+    client.post("/polium/jurisdictions/create/", {
+        "name": "Child City",
+        "level": "city",
+        "parent_sqid": jurisdiction.sqid,
+    })
+    child = Jurisdiction.objects.get(name="Child City")
+    assert child.parent == jurisdiction
+
+
+@pytest.mark.django_db
+def test_create_jurisdiction_duplicate_name_allowed(client, player) -> None:
+    client.force_login(player)
+    client.post("/polium/jurisdictions/create/", {"name": "Wellington", "level": "city"})
+    client.post("/polium/jurisdictions/create/", {"name": "Wellington", "level": "region"})
+    assert Jurisdiction.objects.filter(name="Wellington").count() == 2
+
+
+# ── follow_jurisdiction engagement tracking ───────────────────────────────────
+
+@pytest.mark.django_db
+def test_follow_increments_active_engagement(client, player, jurisdiction: Jurisdiction) -> None:
+    assert jurisdiction.active_engagement == 0
+    client.force_login(player)
+    client.post("/polium/jurisdictions/follow/", {
+        "jurisdiction_sqid": jurisdiction.sqid,
+        "depth": "all",
+    })
+    jurisdiction.refresh_from_db()
+    assert jurisdiction.active_engagement == 1
+
+
+@pytest.mark.django_db
+def test_follow_twice_does_not_double_increment(client, player, jurisdiction: Jurisdiction) -> None:
+    client.force_login(player)
+    client.post("/polium/jurisdictions/follow/", {"jurisdiction_sqid": jurisdiction.sqid, "depth": "all"})
+    client.post("/polium/jurisdictions/follow/", {"jurisdiction_sqid": jurisdiction.sqid, "depth": "all"})
+    jurisdiction.refresh_from_db()
+    assert jurisdiction.active_engagement == 1
+
+
+# ── unfollow_jurisdiction ─────────────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_unfollow_decrements_active_engagement(client, player, jurisdiction: Jurisdiction) -> None:
+    JurisdictionFollow.objects.create(player=player, jurisdiction=jurisdiction)
+    Jurisdiction.objects.filter(pk=jurisdiction.pk).update(active_engagement=1)
+    client.force_login(player)
+    client.post("/polium/jurisdictions/unfollow/", {"jurisdiction_sqid": jurisdiction.sqid})
+    jurisdiction.refresh_from_db()
+    assert jurisdiction.active_engagement == 0
+    assert not JurisdictionFollow.objects.filter(player=player, jurisdiction=jurisdiction).exists()
+
+
+@pytest.mark.django_db
+def test_unfollow_floors_at_zero(client, player, jurisdiction: Jurisdiction) -> None:
+    client.force_login(player)
+    client.post("/polium/jurisdictions/unfollow/", {"jurisdiction_sqid": jurisdiction.sqid})
+    jurisdiction.refresh_from_db()
+    assert jurisdiction.active_engagement == 0
+
+
+@pytest.mark.django_db
+def test_unfollow_requires_login(client, jurisdiction: Jurisdiction) -> None:
+    resp = client.post("/polium/jurisdictions/unfollow/", {"jurisdiction_sqid": jurisdiction.sqid})
+    assert resp.status_code == 302
+    assert "login" in resp["Location"]
+
+
+# ── Datastar POST helper ──────────────────────────────────────────────────────
+
+def _datastar_post(client, url: str, signals: dict) -> bytes:
+    resp = client.post(
+        url,
+        data=json.dumps(signals),
+        content_type="application/json",
+        headers={"Datastar-Request": "true"},
+    )
+    assert resp.status_code == 200
+    return b"".join(resp.streaming_content)
+
+
+# ── jurisdiction_detail ────────────────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_jurisdiction_detail_returns_200(client, jurisdiction: Jurisdiction) -> None:
+    resp = client.get(f"/polium/jurisdictions/{jurisdiction.sqid}/")
+    assert resp.status_code == 200
+    assert jurisdiction.name.encode() in resp.content
+
+
+@pytest.mark.django_db
+def test_jurisdiction_detail_404_for_unknown_sqid(client) -> None:
+    resp = client.get("/polium/jurisdictions/unknownsqid/")
+    assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_jurisdiction_detail_deprecated_shows_notice(client, jurisdiction: Jurisdiction) -> None:
+    Jurisdiction.objects.filter(pk=jurisdiction.pk).update(status=Jurisdiction.STATUS_DEPRECATED)
+    resp = client.get(f"/polium/jurisdictions/{jurisdiction.sqid}/")
+    assert resp.status_code == 200
+    assert b"community review" in resp.content
+
+
+@pytest.mark.django_db
+def test_jurisdiction_detail_shows_children(client, jurisdiction: Jurisdiction) -> None:
+    child = Jurisdiction.objects.create(name="Child City", level="city", parent=jurisdiction)
+    resp = client.get(f"/polium/jurisdictions/{jurisdiction.sqid}/")
+    assert child.name.encode() in resp.content
+
+
+@pytest.mark.django_db
+def test_jurisdiction_detail_shows_elections(client, jurisdiction: Jurisdiction, player) -> None:
+    Election.objects.create(
+        name="Big Election",
+        jurisdiction=jurisdiction,
+        election_date=date.today() + timedelta(days=30),
+        created_by=player,
+    )
+    resp = client.get(f"/polium/jurisdictions/{jurisdiction.sqid}/")
+    assert b"Big Election" in resp.content
+
+
+@pytest.mark.django_db
+def test_jurisdiction_detail_shows_candidates(client, jurisdiction: Jurisdiction, candidate: Candidate) -> None:
+    resp = client.get(f"/polium/jurisdictions/{jurisdiction.sqid}/")
+    assert candidate.name.encode() in resp.content
+
+
+@pytest.mark.django_db
+def test_jurisdiction_detail_shows_follow_button_when_authenticated(
+    client, player, jurisdiction: Jurisdiction
+) -> None:
+    client.force_login(player)
+    resp = client.get(f"/polium/jurisdictions/{jurisdiction.sqid}/")
+    assert resp.status_code == 200
+    assert b"Follow" in resp.content
+
+
+# ── jurisdiction_follow_detail / jurisdiction_unfollow_detail ─────────────────
+
+@pytest.mark.django_db
+def test_follow_detail_creates_follow_and_returns_sse(client, player, jurisdiction: Jurisdiction) -> None:
+    client.force_login(player)
+    body = _datastar_post(client, f"/polium/jurisdictions/{jurisdiction.sqid}/follow/", {"follow_depth": "all"})
+    assert JurisdictionFollow.objects.filter(player=player, jurisdiction=jurisdiction).exists()
+    assert b"follow-section" in body
+
+
+@pytest.mark.django_db
+def test_follow_detail_increments_active_engagement(client, player, jurisdiction: Jurisdiction) -> None:
+    client.force_login(player)
+    _datastar_post(client, f"/polium/jurisdictions/{jurisdiction.sqid}/follow/", {"follow_depth": "all"})
+    jurisdiction.refresh_from_db()
+    assert jurisdiction.active_engagement == 1
+
+
+@pytest.mark.django_db
+def test_follow_detail_idempotent(client, player, jurisdiction: Jurisdiction) -> None:
+    client.force_login(player)
+    _datastar_post(client, f"/polium/jurisdictions/{jurisdiction.sqid}/follow/", {"follow_depth": "all"})
+    _datastar_post(client, f"/polium/jurisdictions/{jurisdiction.sqid}/follow/", {"follow_depth": "all"})
+    jurisdiction.refresh_from_db()
+    assert jurisdiction.active_engagement == 1
+
+
+@pytest.mark.django_db
+def test_unfollow_detail_deletes_follow_and_returns_sse(client, player, jurisdiction: Jurisdiction) -> None:
+    JurisdictionFollow.objects.create(player=player, jurisdiction=jurisdiction)
+    Jurisdiction.objects.filter(pk=jurisdiction.pk).update(active_engagement=1)
+    client.force_login(player)
+    body = _datastar_post(client, f"/polium/jurisdictions/{jurisdiction.sqid}/unfollow/", {})
+    assert not JurisdictionFollow.objects.filter(player=player, jurisdiction=jurisdiction).exists()
+    jurisdiction.refresh_from_db()
+    assert jurisdiction.active_engagement == 0
+    assert b"follow-section" in body
+
+
+@pytest.mark.django_db
+def test_follow_detail_requires_login(client, jurisdiction: Jurisdiction) -> None:
+    resp = client.post(
+        f"/polium/jurisdictions/{jurisdiction.sqid}/follow/",
+        data=json.dumps({}),
+        content_type="application/json",
+        headers={"Datastar-Request": "true"},
+    )
+    assert resp.status_code == 302
+    assert "login" in resp["Location"]
+
+
+# ── add_election ──────────────────────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_add_election_creates_and_returns_sse(client, player, jurisdiction: Jurisdiction) -> None:
+    client.force_login(player)
+    body = _datastar_post(
+        client,
+        f"/polium/jurisdictions/{jurisdiction.sqid}/add-election/",
+        {"election_name": "Test Election", "election_date": "2025-11-04", "election_external_reference": ""},
+    )
+    assert Election.objects.filter(name="Test Election", jurisdiction=jurisdiction).exists()
+    assert b"elections-section" in body
+
+
+@pytest.mark.django_db
+def test_add_election_missing_name_returns_error(client, player, jurisdiction: Jurisdiction) -> None:
+    client.force_login(player)
+    body = _datastar_post(
+        client,
+        f"/polium/jurisdictions/{jurisdiction.sqid}/add-election/",
+        {"election_name": "", "election_date": "2025-11-04", "election_external_reference": ""},
+    )
+    assert not Election.objects.filter(jurisdiction=jurisdiction).exists()
+    assert b"required" in body.lower()
+
+
+@pytest.mark.django_db
+def test_add_election_missing_date_returns_error(client, player, jurisdiction: Jurisdiction) -> None:
+    client.force_login(player)
+    body = _datastar_post(
+        client,
+        f"/polium/jurisdictions/{jurisdiction.sqid}/add-election/",
+        {"election_name": "My Election", "election_date": "", "election_external_reference": ""},
+    )
+    assert not Election.objects.filter(jurisdiction=jurisdiction).exists()
+    assert b"required" in body.lower()
+
+
+@pytest.mark.django_db
+def test_add_election_requires_login(client, jurisdiction: Jurisdiction) -> None:
+    resp = client.post(
+        f"/polium/jurisdictions/{jurisdiction.sqid}/add-election/",
+        data=json.dumps({"election_name": "X", "election_date": "2025-11-04"}),
+        content_type="application/json",
+        headers={"Datastar-Request": "true"},
+    )
+    assert resp.status_code == 302
+
+
+# ── add_candidate ─────────────────────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_add_candidate_creates_and_returns_sse(client, player, jurisdiction: Jurisdiction) -> None:
+    client.force_login(player)
+    body = _datastar_post(
+        client,
+        f"/polium/jurisdictions/{jurisdiction.sqid}/add-candidate/",
+        {"candidate_name": "Alice", "candidate_office": "Mayor", "candidate_election_id": "",
+         "candidate_external_reference": "", "candidate_bio": ""},
+    )
+    assert Candidate.objects.filter(name="Alice", jurisdiction=jurisdiction).exists()
+    assert b"candidates-section" in body
+
+
+@pytest.mark.django_db
+def test_add_candidate_missing_name_returns_error(client, player, jurisdiction: Jurisdiction) -> None:
+    client.force_login(player)
+    body = _datastar_post(
+        client,
+        f"/polium/jurisdictions/{jurisdiction.sqid}/add-candidate/",
+        {"candidate_name": "", "candidate_office": "Mayor", "candidate_election_id": "",
+         "candidate_external_reference": "", "candidate_bio": ""},
+    )
+    assert not Candidate.objects.filter(jurisdiction=jurisdiction).exists()
+    assert b"required" in body.lower()
+
+
+@pytest.mark.django_db
+def test_add_candidate_rejects_cross_jurisdiction_election(
+    client, player, jurisdiction: Jurisdiction
+) -> None:
+    other_jurisdiction = Jurisdiction.objects.create(name="Other", level="city")
+    election = Election.objects.create(
+        name="Other Election",
+        jurisdiction=other_jurisdiction,
+        election_date=date.today() + timedelta(days=10),
+        created_by=player,
+    )
+    client.force_login(player)
+    body = _datastar_post(
+        client,
+        f"/polium/jurisdictions/{jurisdiction.sqid}/add-candidate/",
+        {"candidate_name": "Bob", "candidate_office": "MP", "candidate_election_id": str(election.pk),
+         "candidate_external_reference": "", "candidate_bio": ""},
+    )
+    assert not Candidate.objects.filter(name="Bob").exists()
+    assert b"does not belong" in body or b"invalid" in body.lower()
+
+
+@pytest.mark.django_db
+def test_add_candidate_requires_login(client, jurisdiction: Jurisdiction) -> None:
+    resp = client.post(
+        f"/polium/jurisdictions/{jurisdiction.sqid}/add-candidate/",
+        data=json.dumps({"candidate_name": "X", "candidate_office": "Y"}),
+        content_type="application/json",
+        headers={"Datastar-Request": "true"},
+    )
+    assert resp.status_code == 302
+
+
+# ── flag_jurisdiction_duplicate ────────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_flag_requires_maturity(client, player, jurisdiction: Jurisdiction) -> None:
+    target = Jurisdiction.objects.create(name="Real One", level="city")
+    client.force_login(player)
+    body = _datastar_post(
+        client,
+        f"/polium/jurisdictions/{jurisdiction.sqid}/flag-duplicate/",
+        {"flag_target_sqid": target.sqid},
+    )
+    assert not JurisdictionDuplicateFlag.objects.filter(flagged_jurisdiction=jurisdiction).exists()
+    assert b"7 days" in body
+
+
+@pytest.mark.django_db
+def test_flag_creates_flag_and_returns_sse(client, mature_player, jurisdiction: Jurisdiction) -> None:
+    target = Jurisdiction.objects.create(name="Real One", level="city")
+    client.force_login(mature_player)
+    body = _datastar_post(
+        client,
+        f"/polium/jurisdictions/{jurisdiction.sqid}/flag-duplicate/",
+        {"flag_target_sqid": target.sqid},
+    )
+    assert JurisdictionDuplicateFlag.objects.filter(
+        flagging_player=mature_player, flagged_jurisdiction=jurisdiction, points_to=target
+    ).exists()
+    assert b"flag-section" in body
+    assert b"Real One" in body
+
+
+@pytest.mark.django_db
+def test_flag_prevents_self_flagging(client, mature_player, jurisdiction: Jurisdiction) -> None:
+    client.force_login(mature_player)
+    body = _datastar_post(
+        client,
+        f"/polium/jurisdictions/{jurisdiction.sqid}/flag-duplicate/",
+        {"flag_target_sqid": jurisdiction.sqid},
+    )
+    assert not JurisdictionDuplicateFlag.objects.filter(flagged_jurisdiction=jurisdiction).exists()
+    assert b"itself" in body
+
+
+@pytest.mark.django_db
+def test_flag_blocks_second_flag(client, mature_player, jurisdiction: Jurisdiction) -> None:
+    target = Jurisdiction.objects.create(name="Real One", level="city")
+    JurisdictionDuplicateFlag.objects.create(
+        flagging_player=mature_player,
+        flagged_jurisdiction=jurisdiction,
+        points_to=target,
+    )
+    target2 = Jurisdiction.objects.create(name="Other Real", level="city")
+    client.force_login(mature_player)
+    _datastar_post(
+        client,
+        f"/polium/jurisdictions/{jurisdiction.sqid}/flag-duplicate/",
+        {"flag_target_sqid": target2.sqid},
+    )
+    assert JurisdictionDuplicateFlag.objects.filter(flagged_jurisdiction=jurisdiction).count() == 1
+
+
+# ── jurisdiction_search_flag ──────────────────────────────────────────────────
+
+def _flag_search(client, signals: dict, exclude_sqid: str = "") -> bytes:
+    data: dict[str, str] = {"datastar": json.dumps(signals)}
+    if exclude_sqid:
+        data["exclude"] = exclude_sqid
+    resp = client.get(
+        "/polium/jurisdictions/flag-search/",
+        data=data,
+        headers={"Datastar-Request": "true"},
+    )
+    assert resp.status_code == 200
+    return b"".join(resp.streaming_content)
+
+
+@pytest.mark.django_db
+def test_flag_search_returns_results(client, jurisdiction: Jurisdiction) -> None:
+    other = Jurisdiction.objects.create(name="Other Place", level="city")
+    body = _flag_search(client, {"flag_q": "Other"}, exclude_sqid=jurisdiction.sqid)
+    assert other.name.encode() in body
+
+
+@pytest.mark.django_db
+def test_flag_search_excludes_current_jurisdiction(client, jurisdiction: Jurisdiction) -> None:
+    body = _flag_search(client, {"flag_q": "Test"}, exclude_sqid=jurisdiction.sqid)
+    assert jurisdiction.name.encode() not in body
+
+
+@pytest.mark.django_db
+def test_flag_search_short_query_returns_empty(client) -> None:
+    body = _flag_search(client, {"flag_q": "T"})
+    assert b"button" not in body

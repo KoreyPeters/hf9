@@ -1,0 +1,26 @@
+<div id="search-results" style="margin-top:.5rem;display:flex;flex-direction:column;gap:.5rem">
+  {% if results %}
+    {% for j in results %}
+    <form method="post" action="{% url 'polium:follow_jurisdiction' %}">
+      {% csrf_token %}
+      <input type="hidden" name="jurisdiction_sqid" value="{{ j.sqid }}">
+      <input type="hidden" name="depth" value="all">
+      <button type="submit" style="width:100%;text-align:left;padding:.6rem .8rem;border:1px solid #e5e7eb;border-radius:4px;background:#fff;cursor:pointer;font-size:.9rem">
+        <strong>{{ j.name }}</strong> <span style="color:#9ca3af;font-size:.8rem">({{ j.level }})</span>
+      </button>
+    </form>
+    {% endfor %}
+    <button type="button"
+            data-on:click="@get('{% url 'polium:jurisdiction_create_form' %}')"
+            style="background:none;border:none;cursor:pointer;text-align:left;padding:.25rem 0;font-size:.875rem;color:#6b7280">
+      Don't see yours? Add it.
+    </button>
+  {% elif q|length >= 2 %}
+    <p style="color:#888;font-size:.875rem;margin:.25rem 0">No jurisdictions found.</p>
+    <button type="button"
+            data-on:click="@get('{% url 'polium:jurisdiction_create_form' %}')"
+            style="width:100%;text-align:left;padding:.6rem .8rem;border:1px solid #e5e7eb;border-radius:4px;background:#fff;cursor:pointer;font-size:.9rem">
+      Add "{{ q }}"
+    </button>
+  {% endif %}
+</div>

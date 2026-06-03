@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}{{ jurisdiction.name }} — Polium{% endblock %}
+{% block content %}
+<main style="max-width:800px;margin:0 auto;padding:2rem 1.5rem;font-family:system-ui,sans-serif">
+
+  {# Breadcrumb #}
+  {% if ancestors %}
+  <nav style="font-size:.8rem;color:#9ca3af;margin-bottom:.75rem">
+    {% for ancestor in ancestors %}
+    <a href="{% url 'polium:jurisdiction_detail' ancestor.sqid %}"
+       style="color:#6b7280;text-decoration:none">{{ ancestor.name }}</a>
+    <span style="margin:0 .3rem">&rsaquo;</span>
+    {% endfor %}
+    <span style="color:#374151">{{ jurisdiction.name }}</span>
+  </nav>
+  {% endif %}
+
+  {# Header #}
+  <div style="margin-bottom:1.5rem">
+    <div style="display:flex;align-items:baseline;gap:.75rem;flex-wrap:wrap;margin-bottom:.5rem">
+      <h1 style="font-family:Georgia,serif;font-weight:normal;margin:0">{{ jurisdiction.name }}</h1>
+      <span style="font-size:.75rem;font-weight:600;color:#374151;background:#f3f4f6;padding:.2rem .6rem;border-radius:99px">
+        {{ level_label }}
+      </span>
+    </div>
+    <p style="color:#9ca3af;font-size:.875rem;margin:0">
+      {{ jurisdiction.active_engagement }} follower{{ jurisdiction.active_engagement|pluralize }}
+    </p>
+  </div>
+
+  {# Deprecated notice #}
+  {% if not is_active %}
+  <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:1rem 1.25rem;margin-bottom:1.5rem">
+    <p style="margin:0;font-size:.875rem;color:#92400e">
+      This jurisdiction has been flagged as a possible duplicate and is under community review.
+    </p>
+  </div>
+  {% endif %}
+
+  {# Messages #}
+  {% for message in messages %}
+  <div style="background:#fef9c3;border:1px solid #fde047;border-radius:6px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.875rem;color:#713f12">
+    {{ message }}
+  </div>
+  {% endfor %}
+
+  {# Follow / Unfollow #}
+  <div style="margin-bottom:2rem">
+    {% include "polium/partials/follow_section.html" %}
+  </div>
+
+  {# Children #}
+  {% if children %}
+  <section style="margin-bottom:2rem">
+    <h2 style="font-size:.9rem;font-weight:600;color:#374151;margin:0 0 .75rem">Sub-jurisdictions</h2>
+    <div style="display:flex;flex-wrap:wrap;gap:.4rem">
+      {% for child in children %}
+      <a href="{% url 'polium:jurisdiction_detail' child.sqid %}"
+         style="display:inline-block;padding:.3rem .8rem;border:1px solid #e5e7eb;border-radius:99px;font-size:.8rem;text-decoration:none;color:#374151">
+        {{ child.name }}
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {# Elections #}
+  <section style="margin-bottom:2rem">
+    <h2 style="font-size:.9rem;font-weight:600;color:#374151;margin:0 0 .75rem">Elections</h2>
+    {% include "polium/partials/elections_section.html" %}
+  </section>
+
+  {# Candidates #}
+  <section style="margin-bottom:2rem">
+    <h2 style="font-size:.9rem;font-weight:600;color:#374151;margin:0 0 .75rem">Candidates</h2>
+    {% include "polium/partials/candidates_section.html" %}
+  </section>
+
+  {# Flag as duplicate #}
+  {% if user.is_authenticated and is_active %}
+  <section style="margin-bottom:2rem;padding-top:1.5rem;border-top:1px solid #f3f4f6">
+    {% include "polium/partials/flag_section.html" %}
+  </section>
+  {% endif %}
+
+</main>
+{% endblock %}

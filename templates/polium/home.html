@@ -35,44 +35,14 @@
   <p style="color:#555;margin-bottom:2rem">Follow jurisdictions to see elections near you.</p>
   <div style="max-width:480px">
     <label for="jurisdiction-search" style="display:block;font-size:.875rem;color:#444;margin-bottom:.5rem">Search for a jurisdiction</label>
-    <input type="text" id="jurisdiction-search" placeholder="e.g. California, United Kingdom, Ontario…"
+    <input type="text" id="jurisdiction-search"
+           placeholder="e.g. California, United Kingdom, Ontario…"
            autocomplete="off"
+           data-bind:q
+           data-on:input__debounce.300ms="@get('{% url 'polium:jurisdiction_search' %}')"
            style="width:100%;padding:.6rem .8rem;border:1px solid #ccc;border-radius:4px;font-size:1rem;box-sizing:border-box">
     <div id="search-results" style="margin-top:.5rem;display:flex;flex-direction:column;gap:.5rem"></div>
   </div>
-  <span id="csrf-val" data-token="{{ csrf_token }}" style="display:none"></span>
-  <script>
-  (function() {
-    const input = document.getElementById('jurisdiction-search');
-    const results = document.getElementById('search-results');
-    const csrf = document.getElementById('csrf-val').dataset.token;
-    let timer;
-    input.addEventListener('input', function() {
-      clearTimeout(timer);
-      const q = input.value.trim();
-      if (q.length < 2) { results.innerHTML = ''; return; }
-      timer = setTimeout(function() {
-        fetch('{% url "polium:jurisdiction_search" %}?q=' + encodeURIComponent(q))
-          .then(function(r) { return r.json(); })
-          .then(function(data) {
-            if (!data.results.length) {
-              results.innerHTML = '<p style="color:#888;font-size:.875rem">No jurisdictions found.</p>';
-              return;
-            }
-            results.innerHTML = data.results.map(function(j) {
-              return '<form method="post" action="{% url "polium:follow_jurisdiction" %}">'
-                + '<input type="hidden" name="csrfmiddlewaretoken" value="' + csrf + '">'
-                + '<input type="hidden" name="jurisdiction_sqid" value="' + j.sqid + '">'
-                + '<input type="hidden" name="depth" value="all">'
-                + '<button type="submit" style="width:100%;text-align:left;padding:.6rem .8rem;border:1px solid #e5e7eb;border-radius:4px;background:#fff;cursor:pointer;font-size:.9rem">'
-                + '<strong>' + j.name + '</strong> <span style="color:#9ca3af;font-size:.8rem">(' + j.level + ')</span>'
-                + '</button></form>';
-            }).join('');
-          });
-      }, 300);
-    });
-  })();
-  </script>
 
   {% elif state == "no_elections" %}
   <p style="color:#555;margin-bottom:1.5rem">No upcoming elections in your followed jurisdictions.</p>
@@ -87,40 +57,14 @@
   <div style="max-width:480px">
     <p style="font-size:.875rem;color:#6b7280;margin-bottom:.5rem">Follow more jurisdictions:</p>
     <label for="jurisdiction-search" style="display:none">Search jurisdictions</label>
-    <input type="text" id="jurisdiction-search" placeholder="Search jurisdictions…"
+    <input type="text" id="jurisdiction-search"
+           placeholder="Search jurisdictions…"
            autocomplete="off"
+           data-bind:q
+           data-on:input__debounce.300ms="@get('{% url 'polium:jurisdiction_search' %}')"
            style="width:100%;padding:.6rem .8rem;border:1px solid #ccc;border-radius:4px;font-size:1rem;box-sizing:border-box">
     <div id="search-results" style="margin-top:.5rem;display:flex;flex-direction:column;gap:.5rem"></div>
   </div>
-  <span id="csrf-val" data-token="{{ csrf_token }}" style="display:none"></span>
-  <script>
-  (function() {
-    const input = document.getElementById('jurisdiction-search');
-    const results = document.getElementById('search-results');
-    const csrf = document.getElementById('csrf-val').dataset.token;
-    let timer;
-    input.addEventListener('input', function() {
-      clearTimeout(timer);
-      const q = input.value.trim();
-      if (q.length < 2) { results.innerHTML = ''; return; }
-      timer = setTimeout(function() {
-        fetch('{% url "polium:jurisdiction_search" %}?q=' + encodeURIComponent(q))
-          .then(function(r) { return r.json(); })
-          .then(function(data) {
-            results.innerHTML = data.results.map(function(j) {
-              return '<form method="post" action="{% url "polium:follow_jurisdiction" %}">'
-                + '<input type="hidden" name="csrfmiddlewaretoken" value="' + csrf + '">'
-                + '<input type="hidden" name="jurisdiction_sqid" value="' + j.sqid + '">'
-                + '<input type="hidden" name="depth" value="all">'
-                + '<button type="submit" style="width:100%;text-align:left;padding:.6rem .8rem;border:1px solid #e5e7eb;border-radius:4px;background:#fff;cursor:pointer;font-size:.9rem">'
-                + '<strong>' + j.name + '</strong> <span style="color:#9ca3af;font-size:.8rem">(' + j.level + ')</span>'
-                + '</button></form>';
-            }).join('');
-          });
-      }, 300);
-    });
-  })();
-  </script>
 
   {% elif state == "populated" %}
   <div style="margin-bottom:2rem">
