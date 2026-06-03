@@ -5,8 +5,10 @@ from unittest.mock import patch
 
 import pytest
 
+from accounts.models import Player
+from accounts.utils import generate_username
 from core.tasks import _registry
-from polium.models import BlacklistHistory, Candidate, Election, Jurisdiction, JurisdictionDuplicateFlag, JurisdictionFollow
+from polium.models import BlacklistHistory, Candidate, Election, Jurisdiction, JurisdictionDuplicateFlag, JurisdictionFollow, VoteDeclaration
 
 
 @pytest.fixture
@@ -701,3 +703,255 @@ def test_flag_search_excludes_current_jurisdiction(client, jurisdiction: Jurisdi
 def test_flag_search_short_query_returns_empty(client) -> None:
     body = _flag_search(client, {"flag_q": "T"})
     assert b"button" not in body
+
+
+# ── election_detail ───────────────────────────────────────────────────────────
+
+@pytest.fixture
+def election(db: None, jurisdiction: Jurisdiction, player: Player) -> Election:
+    return Election.objects.create(
+        name="Test Election",
+        jurisdiction=jurisdiction,
+        election_date=date.today() + timedelta(days=30),
+        created_by=player,
+    )
+
+
+@pytest.fixture
+def verified_player(db: None) -> Player:
+    p = Player.objects.create_user(
+        username=generate_username(), email="verified@example.com", password=None
+    )
+    Player.objects.filter(pk=p.pk).update(email_verified=True)
+    p.refresh_from_db()
+    return p
+
+
+@pytest.mark.django_db
+def test_election_detail_renders(client, election: Election) -> None:
+    resp = client.get(f"/polium/elections/{election.sqid}/")
+    assert resp.status_code == 200
+    assert election.name.encode() in resp.content
+
+
+@pytest.mark.django_db
+def test_election_detail_404_for_unknown(client) -> None:
+    resp = client.get("/polium/elections/unknownsqid/")
+    assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_election_detail_shows_linked_candidate(
+    client, election: Election, jurisdiction: Jurisdiction
+) -> None:
+    c = Candidate.objects.create(
+        name="Linked Candidate", jurisdiction=jurisdiction, office="MP", election=election
+    )
+    resp = client.get(f"/polium/elections/{election.sqid}/")
+    assert c.name.encode() in resp.content
+
+
+@pytest.mark.django_db
+def test_election_detail_hides_unlinked_candidate(
+    client, election: Election, jurisdiction: Jurisdiction
+) -> None:
+    Candidate.objects.create(
+        name="Unlinked Candidate", jurisdiction=jurisdiction, office="MP"
+    )
+    resp = client.get(f"/polium/elections/{election.sqid}/")
+    assert b"Unlinked Candidate" not in resp.content
+
+
+@pytest.mark.django_db
+def test_election_detail_upcoming_badge(client, jurisdiction: Jurisdiction, player: Player) -> None:
+    e = Election.objects.create(
+        name="Future Election",
+        jurisdiction=jurisdiction,
+        election_date=date.today() + timedelta(days=10),
+        created_by=player,
+    )
+    resp = client.get(f"/polium/elections/{e.sqid}/")
+    assert b"Upcoming" in resp.content
+
+
+@pytest.mark.django_db
+def test_election_detail_past_badge(client, jurisdiction: Jurisdiction, player: Player) -> None:
+    e = Election.objects.create(
+        name="Past Election",
+        jurisdiction=jurisdiction,
+        election_date=date.today() - timedelta(days=1),
+        created_by=player,
+    )
+    resp = client.get(f"/polium/elections/{e.sqid}/")
+    assert b"Past" in resp.content
+
+
+# ── vote declaration — service ────────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_declare_creates_record(election: Election, jurisdiction: Jurisdiction, verified_player: Player) -> None:
+    from polium import service
+    c = Candidate.objects.create(
+        name="Alice", jurisdiction=jurisdiction, office="MP", election=election,
+        current_rating=Decimal("50.00"),
+    )
+    service.declare_vote(verified_player, c, election)
+    assert VoteDeclaration.objects.filter(player=verified_player, election=election, candidate=c).exists()
+
+
+@pytest.mark.django_db
+def test_declare_awards_points(election: Election, jurisdiction: Jurisdiction, verified_player: Player) -> None:
+    from polium import service
+    c = Candidate.objects.create(
+        name="Alice", jurisdiction=jurisdiction, office="MP", election=election,
+        current_rating=Decimal("50.00"),
+    )
+    pts = service.declare_vote(verified_player, c, election)
+    assert pts > 0
+    verified_player.refresh_from_db()
+    assert verified_player.total_points == pts
+
+
+@pytest.mark.django_db
+def test_declare_change_no_extra_points(
+    election: Election, jurisdiction: Jurisdiction, verified_player: Player
+) -> None:
+    from polium import service
+    c1 = Candidate.objects.create(
+        name="Alice", jurisdiction=jurisdiction, office="MP", election=election,
+        current_rating=Decimal("50.00"),
+    )
+    c2 = Candidate.objects.create(
+        name="Bob", jurisdiction=jurisdiction, office="MP", election=election,
+        current_rating=Decimal("60.00"),
+    )
+    service.declare_vote(verified_player, c1, election)
+    verified_player.refresh_from_db()
+    pts_after_first = verified_player.total_points
+
+    extra = service.declare_vote(verified_player, c2, election)
+    assert extra == Decimal("0")
+    verified_player.refresh_from_db()
+    assert verified_player.total_points == pts_after_first
+
+    decl = VoteDeclaration.objects.get(player=verified_player, election=election)
+    assert decl.candidate == c2
+
+
+@pytest.mark.django_db
+def test_declare_same_candidate_idempotent(
+    election: Election, jurisdiction: Jurisdiction, verified_player: Player
+) -> None:
+    from polium import service
+    c = Candidate.objects.create(
+        name="Alice", jurisdiction=jurisdiction, office="MP", election=election,
+        current_rating=Decimal("50.00"),
+    )
+    service.declare_vote(verified_player, c, election)
+    verified_player.refresh_from_db()
+    pts_after_first = verified_player.total_points
+
+    extra = service.declare_vote(verified_player, c, election)
+    assert extra == Decimal("0")
+    verified_player.refresh_from_db()
+    assert verified_player.total_points == pts_after_first
+    assert VoteDeclaration.objects.filter(player=verified_player, election=election).count() == 1
+
+
+@pytest.mark.django_db
+def test_declare_endorsed_2x(
+    election: Election, jurisdiction: Jurisdiction, verified_player: Player
+) -> None:
+    from django.conf import settings
+    from polium import service
+    c = Candidate.objects.create(
+        name="Alice", jurisdiction=jurisdiction, office="MP", election=election,
+        current_rating=Decimal("50.00"),
+    )
+    Candidate.objects.filter(pk=c.pk).update(is_endorsed=True)
+    c.refresh_from_db()
+
+    c_plain = Candidate.objects.create(
+        name="Bob", jurisdiction=jurisdiction, office="MP",
+        current_rating=Decimal("50.00"),
+    )
+
+    plain_pts = (
+        Decimal(settings.POLIUM["VOTE_DECLARATION_BASE"])
+        * (c_plain.current_rating / 100)
+        * Decimal("1")
+    ).quantize(Decimal("0.01"))
+
+    endorsed_pts = service.declare_vote(verified_player, c, election)
+    expected = (plain_pts * Decimal(str(settings.POLIUM["ENDORSED_MULTIPLIER"]))).quantize(Decimal("0.01"))
+    assert endorsed_pts == expected
+
+
+@pytest.mark.django_db
+def test_declare_blacklisted_025x(
+    election: Election, jurisdiction: Jurisdiction, verified_player: Player
+) -> None:
+    from django.conf import settings
+    from polium import service
+    c = Candidate.objects.create(
+        name="Alice", jurisdiction=jurisdiction, office="MP", election=election,
+        current_rating=Decimal("50.00"),
+    )
+    Candidate.objects.filter(pk=c.pk).update(is_blacklisted=True)
+    c.refresh_from_db()
+
+    pts = service.declare_vote(verified_player, c, election)
+    expected = (
+        Decimal(settings.POLIUM["VOTE_DECLARATION_BASE"])
+        * (c.current_rating / 100)
+        * Decimal(str(settings.POLIUM["BLACKLIST_MULTIPLIER"]))
+    ).quantize(Decimal("0.01"))
+    assert pts == expected
+
+
+# ── vote declaration — view ───────────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_election_declare_view_creates_record(
+    client, election: Election, jurisdiction: Jurisdiction, verified_player: Player
+) -> None:
+    c = Candidate.objects.create(
+        name="Alice", jurisdiction=jurisdiction, office="MP", election=election,
+        current_rating=Decimal("50.00"),
+    )
+    client.force_login(verified_player)
+    body = _datastar_post(client, f"/polium/elections/{election.sqid}/declare/", {"candidate_sqid": c.sqid})
+    assert b"election-declare-section" in body
+    assert VoteDeclaration.objects.filter(
+        player=verified_player, election=election, candidate=c
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_election_declare_view_rejects_wrong_election(
+    client, election: Election, jurisdiction: Jurisdiction, verified_player: Player
+) -> None:
+    other_election = Election.objects.create(
+        name="Other", jurisdiction=jurisdiction,
+        election_date=date.today() + timedelta(days=5),
+    )
+    c = Candidate.objects.create(
+        name="Alice", jurisdiction=jurisdiction, office="MP", election=other_election,
+        current_rating=Decimal("50.00"),
+    )
+    client.force_login(verified_player)
+    body = _datastar_post(client, f"/polium/elections/{election.sqid}/declare/", {"candidate_sqid": c.sqid})
+    assert b"election-declare-section" in body
+    assert not VoteDeclaration.objects.filter(player=verified_player, election=election).exists()
+
+
+@pytest.mark.django_db
+def test_election_declare_view_requires_login(client, election: Election) -> None:
+    resp = client.post(
+        f"/polium/elections/{election.sqid}/declare/",
+        data=json.dumps({"candidate_sqid": "x"}),
+        content_type="application/json",
+        headers={"Datastar-Request": "true"},
+    )
+    assert resp.status_code == 302
+    assert "login" in resp["Location"]

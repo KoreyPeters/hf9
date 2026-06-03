@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 from datastar_py.django import DatastarResponse, ServerSentEventGenerator, read_signals
 from django.contrib import messages
@@ -17,7 +18,8 @@ from evidence.models import Evidence, EvidenceFlag
 from evidence.service import AlreadyFlaggedError, NotMatureError, flag_evidence, submit_evidence, vote_usefulness
 from surveys.models import Criterion
 
-from .models import Candidate, Election, Jurisdiction, JurisdictionDuplicateFlag, JurisdictionFollow
+from . import service
+from .models import Candidate, Election, Jurisdiction, JurisdictionDuplicateFlag, JurisdictionFollow, VoteDeclaration
 
 _VALID_LEVELS = {"country", "province", "region", "city", "other"}
 
@@ -369,8 +371,110 @@ def candidate_link_election(request: HttpRequest, sqid: str) -> DatastarResponse
     ])
 
 
+def _points_preview(candidate: Candidate) -> str:
+    from django.conf import settings
+    base = Decimal(settings.POLIUM["VOTE_DECLARATION_BASE"])
+    if candidate.is_endorsed:
+        mult = Decimal(str(settings.POLIUM["ENDORSED_MULTIPLIER"]))
+    elif candidate.is_blacklisted:
+        mult = Decimal(str(settings.POLIUM["BLACKLIST_MULTIPLIER"]))
+    else:
+        mult = Decimal("1")
+    pts = (base * (candidate.current_rating / 100) * mult).quantize(Decimal("1"))
+    return str(pts)
+
+
+def _declare_ctx(
+    election: Election,
+    candidates: list[Candidate],
+    declaration: VoteDeclaration | None,
+    points_awarded: str | None = None,
+    error: str = "",
+) -> dict[str, object]:
+    candidates_with_preview = [(c, _points_preview(c)) for c in candidates]
+    return {
+        "election": election,
+        "candidates_with_preview": candidates_with_preview,
+        "declaration": declaration,
+        "points_awarded": points_awarded,
+        "error": error,
+    }
+
+
 def election_detail(request: HttpRequest, sqid: str) -> HttpResponse:
-    return HttpResponse("TODO")
+    election = get_object_or_404(Election, sqid=sqid)
+    candidates = list(
+        election.candidates.select_related("jurisdiction").order_by("is_blacklisted", "-current_rating")
+    )
+    declaration: VoteDeclaration | None = None
+    if request.user.is_authenticated:
+        declaration = (
+            VoteDeclaration.objects.filter(player=request.user, election=election)
+            .select_related("candidate")
+            .first()
+        )
+    today = date.today()
+    return render(request, "polium/election_detail.html", {
+        "election": election,
+        "candidates_with_preview": [(c, _points_preview(c)) for c in candidates],
+        "declaration": declaration,
+        "today": today,
+    })
+
+
+@login_required
+@require_POST
+def election_declare(request: HttpRequest, sqid: str) -> DatastarResponse:
+    election = get_object_or_404(Election, sqid=sqid)
+    signals = read_signals(request) or {}
+    candidate_sqid = str(signals.get("candidate_sqid", "")).strip()
+
+    candidates = list(
+        election.candidates.select_related("jurisdiction").order_by("is_blacklisted", "-current_rating")
+    )
+
+    if not candidate_sqid:
+        declaration = (
+            VoteDeclaration.objects.filter(player=request.user, election=election)
+            .select_related("candidate")
+            .first()
+        )
+        html = render_to_string(
+            "polium/partials/election_declare_section.html",
+            _declare_ctx(election, candidates, declaration, error="Please select a candidate."),
+            request=request,
+        )
+        return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#election-declare-section"))
+
+    candidate = Candidate.objects.filter(sqid=candidate_sqid, election=election).first()
+    if candidate is None:
+        declaration = (
+            VoteDeclaration.objects.filter(player=request.user, election=election)
+            .select_related("candidate")
+            .first()
+        )
+        html = render_to_string(
+            "polium/partials/election_declare_section.html",
+            _declare_ctx(election, candidates, declaration, error="Invalid candidate selection."),
+            request=request,
+        )
+        return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#election-declare-section"))
+
+    points_awarded: Decimal = service.declare_vote(request.user, candidate, election)
+
+    declaration = (
+        VoteDeclaration.objects.filter(player=request.user, election=election)
+        .select_related("candidate")
+        .first()
+    )
+    awarded_str = str(points_awarded.quantize(Decimal("1"))) if points_awarded > 0 else None
+
+    html = render_to_string(
+        "polium/partials/election_declare_section.html",
+        _declare_ctx(election, candidates, declaration, points_awarded=awarded_str),
+        request=request,
+    )
+    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#election-declare-section"))
 
 
 def jurisdiction_detail(request: HttpRequest, sqid: str) -> HttpResponse:

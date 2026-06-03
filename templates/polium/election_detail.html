@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}{{ election.name }} — Polium{% endblock %}
+{% block content %}
+<main style="max-width:800px;margin:0 auto;padding:2rem 1.5rem;font-family:system-ui,sans-serif">
+
+  {# Breadcrumb #}
+  {% if election.jurisdiction %}
+  <nav style="font-size:.8rem;color:#9ca3af;margin-bottom:.75rem">
+    <a href="{% url 'polium:jurisdiction_detail' election.jurisdiction.sqid %}"
+       style="color:#6b7280;text-decoration:none">{{ election.jurisdiction.name }}</a>
+    <span style="margin:0 .3rem">&rsaquo;</span>
+    <span style="color:#374151">{{ election.name }}</span>
+  </nav>
+  {% endif %}
+
+  {# Header #}
+  <div style="margin-bottom:2rem">
+    <div style="display:flex;align-items:baseline;gap:.75rem;flex-wrap:wrap;margin-bottom:.5rem">
+      <h1 style="font-family:Georgia,serif;font-weight:normal;margin:0">{{ election.name }}</h1>
+      {% if election.election_date >= today %}
+      <span style="font-size:.75rem;font-weight:600;color:#047857;background:#d1fae5;padding:.2rem .6rem;border-radius:99px">Upcoming</span>
+      {% else %}
+      <span style="font-size:.75rem;font-weight:600;color:#6b7280;background:#f3f4f6;padding:.2rem .6rem;border-radius:99px">Past</span>
+      {% endif %}
+    </div>
+    <p style="color:#6b7280;font-size:.875rem;margin:.25rem 0 0">
+      {{ election.election_date|date:"F j, Y" }}
+      {% if election.jurisdiction %}
+      &middot;
+      <a href="{% url 'polium:jurisdiction_detail' election.jurisdiction.sqid %}"
+         style="color:#6b7280;text-decoration:none">{{ election.jurisdiction.name }}</a>
+      {% endif %}
+    </p>
+    {% if election.external_reference %}
+    <p style="margin:.5rem 0 0;font-size:.875rem">
+      <a href="{{ election.external_reference }}" target="_blank" rel="noopener"
+         style="color:#1d4ed8">Official page &rarr;</a>
+    </p>
+    {% endif %}
+  </div>
+
+  {# Messages #}
+  {% for message in messages %}
+  <div style="background:#fef9c3;border:1px solid #fde047;border-radius:6px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.875rem;color:#713f12">
+    {{ message }}
+  </div>
+  {% endfor %}
+
+  {# Declare section #}
+  <section style="margin-bottom:2.5rem">
+    <h2 style="font-size:1rem;font-weight:600;color:#374151;margin-bottom:1rem">Candidates</h2>
+    <div id="election-declare-section">
+      {% include "polium/partials/election_declare_section.html" %}
+    </div>
+  </section>
+
+</main>
+{% endblock %}

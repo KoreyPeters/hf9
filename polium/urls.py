@@ -23,6 +23,7 @@ urlpatterns = [
     path("jurisdictions/<str:sqid>/add-candidate/", views.add_candidate, name="add_candidate"),
     path("jurisdictions/<str:sqid>/flag-duplicate/", views.flag_jurisdiction_duplicate, name="flag_jurisdiction_duplicate"),
     path("candidates/<str:sqid>/", views.candidate_detail, name="candidate_detail"),
+    path("elections/<str:sqid>/declare/", views.election_declare, name="election_declare"),
     path("elections/<str:sqid>/", views.election_detail, name="election_detail"),
     path("jurisdictions/<str:sqid>/", views.jurisdiction_detail, name="jurisdiction_detail"),
     path("candidates/<str:sqid>/election-section/", views.candidate_election_section, name="candidate_election_section"),

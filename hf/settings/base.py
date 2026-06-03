@@ -184,3 +184,9 @@ LIFECYCLE = {
     "MATURITY_ACCOUNT_AGE_DAYS": 7,
     "MATURITY_SURVEY_COUNT": 3,
 }
+
+POLIUM = {
+    "VOTE_DECLARATION_BASE": config("VOTE_DECLARATION_BASE", default=500, cast=int),
+    "ENDORSED_MULTIPLIER": config("ENDORSED_MULTIPLIER", default=2.0, cast=float),
+    "BLACKLIST_MULTIPLIER": config("BLACKLIST_MULTIPLIER", default=0.25, cast=float),
+}
