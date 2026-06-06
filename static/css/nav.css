@@ -8,6 +8,12 @@
   --nav-height: 52px;
 }
 
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
 .site-nav {
   position: sticky;
   top: 0;

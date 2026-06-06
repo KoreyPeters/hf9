@@ -40,7 +40,6 @@
 
       <div class="nav-links">
         <a href="{% url 'polium:home' %}" class="nav-link">Polium</a>
-        <a href="{% url 'about' %}" class="nav-link">About</a>
 
         {% if user.is_authenticated %}
           <span class="nav-sep"></span>
@@ -70,6 +69,15 @@
   </div>
   {% endif %}
 
-  {% block content %}{% endblock %}
+  <div style="flex:1">{% block content %}{% endblock %}</div>
+
+  <footer style="border-top:1px solid #e5e2dc;padding:1.5rem;text-align:center;font-family:system-ui,sans-serif;font-size:.8125rem;color:#9ca3af">
+    <a href="{% url 'about' %}" style="color:#9ca3af;text-decoration:none">About</a>
+    <span style="margin:0 .5rem">&middot;</span>
+    <a href="{% url 'polium:privacy' %}" style="color:#9ca3af;text-decoration:none">Polium Privacy</a>
+    <span style="margin:0 .5rem">&middot;</span>
+    <a href="{% url 'spendium:privacy' %}" style="color:#9ca3af;text-decoration:none">Spendium Privacy</a>
+  </footer>
+
 </body>
 </html>

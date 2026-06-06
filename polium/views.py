@@ -846,6 +846,10 @@ def jurisdiction_search_flag(request: HttpRequest) -> DatastarResponse:
     return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#flag-results"))
 
 
+def privacy(request: HttpRequest) -> HttpResponse:
+    return render(request, "polium/privacy.html")
+
+
 @login_required
 @require_POST
 def submit_survey(request: HttpRequest, sqid: str) -> DatastarResponse:
