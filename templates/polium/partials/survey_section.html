@@ -1,0 +1,78 @@
+<div id="survey-section" style="margin-bottom:2.5rem">
+  <h2 style="font-size:1rem;font-weight:600;color:#374151;margin-bottom:.5rem">Survey this candidate</h2>
+  <p style="font-size:.875rem;color:#6b7280;margin-bottom:1.25rem">
+    Current rating: {% widthratio candidate.current_rating 1 100 %}%
+  </p>
+
+  {% if survey_state == "anonymous" %}
+    <p style="font-size:.875rem;color:#6b7280">
+      <a href="{% url 'accounts:login' %}" style="color:#1d4ed8">Log in</a> to survey this candidate and earn up to 100 points.
+    </p>
+
+  {% elif survey_state == "submitted" %}
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:1rem 1.25rem;margin-bottom:.75rem">
+      <p style="margin:0 0 .25rem;font-weight:600;color:#166534">Survey submitted!</p>
+      {% if points_awarded %}
+      <p style="margin:0 0 .25rem;font-size:.875rem;color:#166534">You earned {{ points_awarded }} points.</p>
+      {% endif %}
+      <p style="margin:0;font-size:.875rem;color:#166534">
+        Updated rating: {% widthratio candidate.current_rating 1 100 %}%
+      </p>
+    </div>
+    <p style="font-size:.8rem;color:#9ca3af">You can survey this candidate again in 30 days.</p>
+
+  {% elif survey_state == "in_cooldown" %}
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:1rem 1.25rem;margin-bottom:1rem">
+      <p style="margin:0;font-size:.875rem;color:#166534">
+        Survey submitted. You can survey again in {{ cooldown_remaining.days }} day{{ cooldown_remaining.days|pluralize }}.
+      </p>
+    </div>
+    {% if existing_answer_rows %}
+    <p style="font-size:.8rem;font-weight:600;color:#6b7280;margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.04em">Your current answers</p>
+    {% for question, answer in existing_answer_rows %}
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;padding:.35rem 0;border-bottom:1px solid #f3f4f6;font-size:.875rem">
+      <span style="color:#374151">{{ question }}</span>
+      <span style="font-weight:500;white-space:nowrap;{% if answer %}color:#166534{% else %}color:#991b1b{% endif %}">
+        {% if answer %}Yes{% else %}No{% endif %}
+      </span>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+  {% elif survey_state == "ready" %}
+    {% if criteria_by_category %}
+    <p style="font-size:.875rem;color:#6b7280;margin-bottom:1.25rem">
+      Your answers shape this candidate's rating. First survey earns 100 points.
+    </p>
+    <form data-on:submit="@post('{% url 'polium:submit_survey' candidate.sqid %}', {contentType: 'form'})">
+      {% csrf_token %}
+      {% for category, criteria in criteria_by_category %}
+      <p style="font-size:.75rem;font-weight:700;color:#374151;margin:1rem 0 .75rem;text-transform:uppercase;letter-spacing:.06em">{{ category.name }}</p>
+      {% for criterion in criteria %}
+      <div style="margin-bottom:1.25rem">
+        <p style="font-size:.9rem;color:#111;margin:0 0 .5rem;line-height:1.4">{{ criterion.question }}</p>
+        <div style="display:flex;gap:.75rem">
+          <label style="display:flex;align-items:center;gap:.375rem;cursor:pointer;font-size:.875rem;color:#374151">
+            <input type="radio" name="criterion_{{ criterion.pk }}" value="yes" style="accent-color:#2d5a27"> Yes
+          </label>
+          <label style="display:flex;align-items:center;gap:.375rem;cursor:pointer;font-size:.875rem;color:#374151">
+            <input type="radio" name="criterion_{{ criterion.pk }}" value="no" style="accent-color:#991b1b"> No
+          </label>
+        </div>
+      </div>
+      {% endfor %}
+      {% endfor %}
+      {% if error %}
+      <p style="font-size:.875rem;color:#991b1b;margin-bottom:.75rem">{{ error }}</p>
+      {% endif %}
+      <button type="submit"
+              style="padding:.5rem 1.25rem;background:#2d5a27;color:#fff;border:none;border-radius:4px;font-size:.9rem;cursor:pointer;font-weight:500">
+        Submit survey
+      </button>
+    </form>
+    {% else %}
+    <p style="font-size:.875rem;color:#9ca3af">No survey questions are available yet.</p>
+    {% endif %}
+  {% endif %}
+
+</div>

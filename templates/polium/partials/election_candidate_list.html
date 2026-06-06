@@ -17,7 +17,7 @@
       </div>
       <div style="font-size:.8rem;color:#6b7280;margin-bottom:.5rem">{{ candidate.office }}</div>
       <div style="font-size:.8rem;color:#6b7280">
-        Rating: <strong>{{ candidate.current_rating }}%</strong>
+        Rating: <strong>{% widthratio candidate.current_rating 1 100 %}%</strong>
         &middot; Worth ~<strong>{{ preview }}</strong> pts
         {% if candidate.is_endorsed %}<span style="color:#047857">(2&times; endorsed)</span>{% endif %}
         {% if candidate.is_blacklisted %}<span style="color:#991b1b">(0.25&times; blacklisted)</span>{% endif %}

@@ -9,6 +9,7 @@ from accounts.models import Player
 from accounts.utils import generate_username
 from core.tasks import _registry
 from polium.models import BlacklistHistory, Candidate, Election, Jurisdiction, JurisdictionDuplicateFlag, JurisdictionFollow, VoteDeclaration
+from surveys.models import Category, Criterion, SurveyConfig, SurveyResponse
 
 
 @pytest.fixture
@@ -955,3 +956,145 @@ def test_election_declare_view_requires_login(client, election: Election) -> Non
     )
     assert resp.status_code == 302
     assert "login" in resp["Location"]
+
+
+# ── Survey view ───────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def survey_player(db: None) -> Player:
+    p = Player.objects.create_user(
+        username=generate_username(), email="survey@example.com", password=None
+    )
+    Player.objects.filter(pk=p.pk).update(email_verified=True)
+    p.refresh_from_db()
+    return p
+
+
+@pytest.fixture
+def polium_category(db: None) -> Category:
+    return Category.objects.create(name="Climate", description="", game="polium")
+
+
+@pytest.fixture
+def survey_criterion(db: None, polium_category: Category) -> Criterion:
+    return Criterion.objects.create(
+        category=polium_category, question="Has the candidate acted on climate?", weight=1.0
+    )
+
+
+@pytest.fixture
+def survey_config_obj(db: None) -> SurveyConfig:
+    return SurveyConfig.objects.create(pk=1, cooldown_days=30)
+
+
+@pytest.mark.django_db
+def test_survey_view_requires_login(client: object, candidate: Candidate) -> None:
+    resp = client.post(f"/polium/candidates/{candidate.sqid}/survey/", {"criterion_1": "yes"})
+    assert resp.status_code == 302
+    assert "login" in resp["Location"]
+
+
+@pytest.mark.django_db
+def test_survey_empty_answers_returns_error(
+    client: object,
+    survey_player: Player,
+    candidate: Candidate,
+    survey_config_obj: SurveyConfig,
+    survey_criterion: Criterion,
+) -> None:
+    client.force_login(survey_player)
+    resp = client.post(f"/polium/candidates/{candidate.sqid}/survey/", {})
+    assert resp.status_code == 200
+    content = b"".join(resp.streaming_content)
+    assert b"answer at least one question" in content
+    assert SurveyResponse.objects.filter(player=survey_player).count() == 0
+
+
+@pytest.mark.django_db
+def test_survey_creates_response_and_awards_points(
+    client: object,
+    survey_player: Player,
+    candidate: Candidate,
+    survey_config_obj: SurveyConfig,
+    survey_criterion: Criterion,
+) -> None:
+    client.force_login(survey_player)
+    resp = client.post(
+        f"/polium/candidates/{candidate.sqid}/survey/",
+        {f"criterion_{survey_criterion.pk}": "yes"},
+    )
+    assert resp.status_code == 200
+    assert SurveyResponse.objects.filter(player=survey_player).count() == 1
+    survey_player.refresh_from_db()
+    assert survey_player.total_points == Decimal("100")
+
+
+@pytest.mark.django_db
+def test_survey_submitted_state_in_response(
+    client: object,
+    survey_player: Player,
+    candidate: Candidate,
+    survey_config_obj: SurveyConfig,
+    survey_criterion: Criterion,
+) -> None:
+    client.force_login(survey_player)
+    resp = client.post(
+        f"/polium/candidates/{candidate.sqid}/survey/",
+        {f"criterion_{survey_criterion.pk}": "yes"},
+    )
+    content = b"".join(resp.streaming_content)
+    assert b"Survey submitted" in content
+    assert b"100" in content
+
+
+@pytest.mark.django_db
+def test_survey_cooldown_blocks_resubmit(
+    client: object,
+    survey_player: Player,
+    candidate: Candidate,
+    survey_config_obj: SurveyConfig,
+    survey_criterion: Criterion,
+) -> None:
+    client.force_login(survey_player)
+    url = f"/polium/candidates/{candidate.sqid}/survey/"
+    client.post(url, {f"criterion_{survey_criterion.pk}": "yes"})
+    resp = client.post(url, {f"criterion_{survey_criterion.pk}": "no"})
+    assert resp.status_code == 200
+    assert SurveyResponse.objects.filter(player=survey_player).count() == 1
+
+
+@pytest.mark.django_db
+def test_survey_updates_candidate_rating(
+    client: object,
+    survey_player: Player,
+    candidate: Candidate,
+    survey_config_obj: SurveyConfig,
+    survey_criterion: Criterion,
+) -> None:
+    client.force_login(survey_player)
+    client.post(
+        f"/polium/candidates/{candidate.sqid}/survey/",
+        {f"criterion_{survey_criterion.pk}": "yes"},
+    )
+    candidate.refresh_from_db()
+    assert candidate.current_rating == Decimal("1.00")
+
+
+@pytest.mark.django_db
+def test_survey_no_points_for_unverified_player(
+    client: object,
+    candidate: Candidate,
+    survey_config_obj: SurveyConfig,
+    survey_criterion: Criterion,
+) -> None:
+    unverified = Player.objects.create_user(
+        username=generate_username(), email="unverified2@example.com", password=None
+    )
+    client.force_login(unverified)
+    resp = client.post(
+        f"/polium/candidates/{candidate.sqid}/survey/",
+        {f"criterion_{survey_criterion.pk}": "yes"},
+    )
+    assert resp.status_code == 200
+    unverified.refresh_from_db()
+    assert unverified.total_points == Decimal("0")

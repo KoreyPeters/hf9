@@ -1,5 +1,6 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
+from itertools import groupby
 
 from datastar_py.django import DatastarResponse, ServerSentEventGenerator, read_signals
 from django.contrib import messages
@@ -14,9 +15,11 @@ from django.template.loader import render_to_string
 from django.views.decorators.http import require_POST
 
 from core.maturity import account_is_mature
+from core.tasks import enqueue
 from evidence.models import Evidence, EvidenceFlag
 from evidence.service import AlreadyFlaggedError, NotMatureError, flag_evidence, submit_evidence, vote_usefulness
-from surveys.models import Criterion
+from surveys.models import Criterion, SurveyConfig, SurveyResponse
+from surveys.service import CoolDownError, check_cooldown
 
 from . import service
 from .models import Candidate, Election, Jurisdiction, JurisdictionDuplicateFlag, JurisdictionFollow, VoteDeclaration
@@ -227,6 +230,49 @@ def unfollow_jurisdiction(request: HttpRequest) -> HttpResponse:
     return redirect("polium:home")
 
 
+def _survey_ctx(request: HttpRequest, candidate: Candidate) -> dict[str, object]:
+    criteria_qs = list(
+        Criterion.objects
+        .filter(is_active=True, category__game="polium")
+        .select_related("category")
+        .order_by("category__name", "question")
+    )
+    criteria_by_category: list[tuple[object, list[Criterion]]] = [
+        (cat, list(crits))
+        for cat, crits in groupby(criteria_qs, key=lambda c: c.category)
+    ]
+    survey_state = "anonymous"
+    cooldown_remaining: timedelta | None = None
+    existing_answer_rows: list[tuple[str, bool]] = []
+    if request.user.is_authenticated:
+        cooldown_remaining = check_cooldown(request.user, candidate)
+        if cooldown_remaining is not None:
+            survey_state = "in_cooldown"
+            ct = ContentType.objects.get_for_model(Candidate)
+            latest = (
+                SurveyResponse.objects
+                .filter(player=request.user, content_type=ct, object_id=candidate.pk)
+                .order_by("-submitted_at")
+                .first()
+            )
+            if latest:
+                answer_map = {a.criterion_id: a.answer for a in latest.answers.all()}
+                existing_answer_rows = [
+                    (c.question, answer_map[c.pk])
+                    for c in criteria_qs
+                    if c.pk in answer_map
+                ]
+        else:
+            survey_state = "ready"
+    return {
+        "survey_state": survey_state,
+        "cooldown_remaining": cooldown_remaining,
+        "criteria_by_category": criteria_by_category,
+        "existing_answer_rows": existing_answer_rows,
+        "criteria": criteria_qs,
+    }
+
+
 def candidate_detail(request: HttpRequest, sqid: str) -> HttpResponse:
     candidate = get_object_or_404(Candidate, sqid=sqid)
     ct = ContentType.objects.get_for_model(Candidate)
@@ -243,20 +289,20 @@ def candidate_detail(request: HttpRequest, sqid: str) -> HttpResponse:
         candidate.blacklist_history.order_by("-blacklisted_at").first()
         if candidate.is_blacklisted else None
     )
-    criteria = Criterion.objects.filter(is_active=True).order_by("category__name", "question")
     elections_for_form: list[Election] = []
     if candidate.jurisdiction_id:
         elections_for_form = list(
             Election.objects.filter(jurisdiction=candidate.jurisdiction).order_by("-election_date")
         )
-    return render(request, "polium/candidate_profile.html", {
+    ctx: dict[str, object] = {
         "candidate": candidate,
         "evidence_list": evidence_qs,
         "blacklist_record": blacklist_record,
-        "criteria": criteria,
         "flag_reasons": EvidenceFlag.REASON_CHOICES,
         "elections_for_form": elections_for_form,
-    })
+    }
+    ctx.update(_survey_ctx(request, candidate))
+    return render(request, "polium/candidate_profile.html", ctx)
 
 
 @login_required
@@ -800,8 +846,62 @@ def jurisdiction_search_flag(request: HttpRequest) -> DatastarResponse:
     return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#flag-results"))
 
 
-def submit_survey(request: HttpRequest, sqid: str) -> HttpResponse:
-    return HttpResponse("TODO")
+@login_required
+@require_POST
+def submit_survey(request: HttpRequest, sqid: str) -> DatastarResponse:
+    from surveys.service import submit_survey as svc_submit
+
+    candidate = get_object_or_404(Candidate, sqid=sqid)
+
+    answers: dict[int, bool] = {}
+    for key, value in request.POST.items():
+        if key.startswith("criterion_"):
+            try:
+                cid = int(key[len("criterion_"):])
+                answers[cid] = value == "yes"
+            except ValueError:
+                pass
+
+    def _render(extra: dict[str, object]) -> DatastarResponse:
+        ctx = {"candidate": candidate, **_survey_ctx(request, candidate), **extra}
+        html = render_to_string(
+            "polium/partials/survey_section.html", ctx, request=request
+        )
+        return DatastarResponse(
+            ServerSentEventGenerator.patch_elements(html, selector="#survey-section")
+        )
+
+    if not answers:
+        return _render({"error": "Please answer at least one question before submitting."})
+
+    try:
+        response = svc_submit(request.user, candidate, answers)
+    except CoolDownError:
+        return _render({})
+
+    config = SurveyConfig.get()
+    if response.submit_count == 1:
+        points_awarded: int = config.survey_points_first
+    elif response.submit_count == 2:
+        points_awarded = config.survey_points_second
+    else:
+        points_awarded = config.survey_points_subsequent
+
+    if not request.user.email_verified:
+        points_awarded = 0
+
+    enqueue("update-candidate-rating", {"candidate_id": candidate.pk})
+    candidate.refresh_from_db()
+
+    ctx = {"candidate": candidate, **_survey_ctx(request, candidate)}
+    ctx["survey_state"] = "submitted"
+    ctx["points_awarded"] = points_awarded
+    html = render_to_string(
+        "polium/partials/survey_section.html", ctx, request=request
+    )
+    return DatastarResponse(
+        ServerSentEventGenerator.patch_elements(html, selector="#survey-section")
+    )
 
 
 def declare_vote(request: HttpRequest, sqid: str) -> HttpResponse:

@@ -15,7 +15,7 @@
       {{ candidate.office }}{% if candidate.jurisdiction %} &middot; {{ candidate.jurisdiction.name }}{% endif %}
     </p>
     <p style="margin:.5rem 0 0;font-size:1.1rem;font-weight:600">
-      Rating: {{ candidate.current_rating }}%
+      Rating: {% widthratio candidate.current_rating 1 100 %}%
     </p>
   </div>
 
@@ -45,6 +45,9 @@
     {{ message }}
   </div>
   {% endfor %}
+
+  {# Survey section #}
+  {% include "polium/partials/survey_section.html" %}
 
   {# Evidence section #}
   <section style="margin-bottom:2.5rem">
