@@ -426,7 +426,7 @@ def _points_preview(candidate: Candidate) -> str:
         mult = Decimal(str(settings.POLIUM["BLACKLIST_MULTIPLIER"]))
     else:
         mult = Decimal("1")
-    pts = (base * (candidate.current_rating / 100) * mult).quantize(Decimal("1"))
+    pts = (base * candidate.current_rating * mult).quantize(Decimal("1"))
     return str(pts)
 
 

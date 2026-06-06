@@ -794,7 +794,7 @@ def test_declare_creates_record(election: Election, jurisdiction: Jurisdiction, 
     from polium import service
     c = Candidate.objects.create(
         name="Alice", jurisdiction=jurisdiction, office="MP", election=election,
-        current_rating=Decimal("50.00"),
+        current_rating=Decimal("0.50"),
     )
     service.declare_vote(verified_player, c, election)
     assert VoteDeclaration.objects.filter(player=verified_player, election=election, candidate=c).exists()
@@ -805,7 +805,7 @@ def test_declare_awards_points(election: Election, jurisdiction: Jurisdiction, v
     from polium import service
     c = Candidate.objects.create(
         name="Alice", jurisdiction=jurisdiction, office="MP", election=election,
-        current_rating=Decimal("50.00"),
+        current_rating=Decimal("0.50"),
     )
     pts = service.declare_vote(verified_player, c, election)
     assert pts > 0
@@ -820,11 +820,11 @@ def test_declare_change_no_extra_points(
     from polium import service
     c1 = Candidate.objects.create(
         name="Alice", jurisdiction=jurisdiction, office="MP", election=election,
-        current_rating=Decimal("50.00"),
+        current_rating=Decimal("0.50"),
     )
     c2 = Candidate.objects.create(
         name="Bob", jurisdiction=jurisdiction, office="MP", election=election,
-        current_rating=Decimal("60.00"),
+        current_rating=Decimal("0.60"),
     )
     service.declare_vote(verified_player, c1, election)
     verified_player.refresh_from_db()
@@ -846,7 +846,7 @@ def test_declare_same_candidate_idempotent(
     from polium import service
     c = Candidate.objects.create(
         name="Alice", jurisdiction=jurisdiction, office="MP", election=election,
-        current_rating=Decimal("50.00"),
+        current_rating=Decimal("0.50"),
     )
     service.declare_vote(verified_player, c, election)
     verified_player.refresh_from_db()
@@ -867,20 +867,14 @@ def test_declare_endorsed_2x(
     from polium import service
     c = Candidate.objects.create(
         name="Alice", jurisdiction=jurisdiction, office="MP", election=election,
-        current_rating=Decimal("50.00"),
+        current_rating=Decimal("0.50"),
     )
     Candidate.objects.filter(pk=c.pk).update(is_endorsed=True)
     c.refresh_from_db()
 
-    c_plain = Candidate.objects.create(
-        name="Bob", jurisdiction=jurisdiction, office="MP",
-        current_rating=Decimal("50.00"),
-    )
-
     plain_pts = (
         Decimal(settings.POLIUM["VOTE_DECLARATION_BASE"])
-        * (c_plain.current_rating / 100)
-        * Decimal("1")
+        * c.current_rating
     ).quantize(Decimal("0.01"))
 
     endorsed_pts = service.declare_vote(verified_player, c, election)
@@ -896,7 +890,7 @@ def test_declare_blacklisted_025x(
     from polium import service
     c = Candidate.objects.create(
         name="Alice", jurisdiction=jurisdiction, office="MP", election=election,
-        current_rating=Decimal("50.00"),
+        current_rating=Decimal("0.50"),
     )
     Candidate.objects.filter(pk=c.pk).update(is_blacklisted=True)
     c.refresh_from_db()
@@ -904,7 +898,7 @@ def test_declare_blacklisted_025x(
     pts = service.declare_vote(verified_player, c, election)
     expected = (
         Decimal(settings.POLIUM["VOTE_DECLARATION_BASE"])
-        * (c.current_rating / 100)
+        * c.current_rating
         * Decimal(str(settings.POLIUM["BLACKLIST_MULTIPLIER"]))
     ).quantize(Decimal("0.01"))
     assert pts == expected

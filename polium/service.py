@@ -24,7 +24,7 @@ def _vote_multiplier(candidate: Candidate) -> Decimal:
 
 def declare_vote(player: Player, candidate: Candidate, election: Election) -> Decimal:
     base = Decimal(settings.POLIUM["VOTE_DECLARATION_BASE"])
-    amount = (base * (candidate.current_rating / 100) * _vote_multiplier(candidate)).quantize(
+    amount = (base * candidate.current_rating * _vote_multiplier(candidate)).quantize(
         Decimal("0.01")
     )
 

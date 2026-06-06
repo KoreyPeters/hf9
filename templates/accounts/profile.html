@@ -1,27 +1,94 @@
 {% extends "base.html" %}
 {% block title %}{{ profile_player.display_label }} — Human Flourishing{% endblock %}
 {% block content %}
-<main style="max-width:640px;margin:4rem auto;padding:0 1.5rem;font-family:system-ui,sans-serif">
+<main style="max-width:720px;margin:3rem auto;padding:0 1.5rem 5rem;font-family:system-ui,sans-serif">
 
-  <div style="display:flex;align-items:center;gap:1.25rem;margin-bottom:2rem">
-    <div style="width:56px;height:56px;border-radius:50%;background:#e5e7eb;display:flex;align-items:center;justify-content:center;font-size:1.5rem;color:#6b7280;font-weight:500;flex-shrink:0">
+  <div style="display:flex;align-items:center;gap:1.25rem;margin-bottom:3rem">
+    <div style="width:60px;height:60px;border-radius:50%;background:#e5e7eb;display:flex;align-items:center;justify-content:center;font-size:1.625rem;color:#6b7280;font-weight:500;flex-shrink:0">
       {{ profile_player.display_name|first|upper|default:"?" }}
     </div>
     <div>
-      <h1 style="font-family:Georgia,serif;font-weight:normal;margin:0;font-size:1.5rem">{{ profile_player.display_label }}</h1>
-      <p style="margin:.25rem 0 0;font-size:.875rem;color:#9ca3af">Member since {{ profile_player.date_joined|date:"N Y" }}</p>
+      <h1 style="font-family:Georgia,serif;font-weight:normal;margin:0;font-size:1.5rem;line-height:1.2">{{ profile_player.display_label }}</h1>
+      <p style="margin:.3rem 0 .5rem;font-size:.875rem;color:#9ca3af">Member since {{ profile_player.date_joined|date:"N Y" }}</p>
+      <p style="margin:0;font-size:1.125rem;font-weight:600;color:#1a1a2e">{{ profile_player.total_points|floatformat:0 }} pts</p>
     </div>
   </div>
 
-  <dl style="display:grid;grid-template-columns:max-content 1fr;gap:.5rem 1.5rem;font-size:.9375rem">
-    <dt style="color:#6b7280">Points</dt>
-    <dd style="margin:0;font-weight:500">{{ profile_player.total_points }}</dd>
-  </dl>
-
   {% if is_own_profile %}
-  <p style="margin-top:2rem;font-size:.875rem;color:#9ca3af">
-    This is your profile. Display name editing coming soon.
-  </p>
+
+  {% if survey_rows or declaration_rows %}
+  <section style="margin-bottom:3rem">
+    <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.125rem;color:#1a1a2e;margin:0 0 1.25rem;padding-bottom:.625rem;border-bottom:1px solid #e5e7eb">Polium</h2>
+
+    {% if survey_rows %}
+    <h3 style="font-size:.75rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin:0 0 .75rem">Candidate surveys</h3>
+    <div style="display:flex;flex-direction:column;gap:.5rem;margin-bottom:2rem">
+      {% for row in survey_rows %}
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;padding:.625rem 0;border-bottom:1px solid #f3f4f6">
+        <div style="min-width:0">
+          <a href="{% url 'polium:candidate_detail' row.candidate.sqid %}"
+             style="font-size:.9375rem;color:#1a1a2e;text-decoration:none;font-weight:500">{{ row.candidate.name }}</a>
+          <span style="font-size:.8125rem;color:#9ca3af;margin-left:.5rem">{{ row.candidate.office }}</span>
+        </div>
+        <div style="display:flex;gap:1rem;align-items:baseline;flex-shrink:0;font-size:.8125rem;color:#6b7280;white-space:nowrap">
+          {% if row.submit_count > 1 %}<span>&times;{{ row.submit_count }}</span>{% endif %}
+          {% if row.points_total %}<span style="color:#2d5a27;font-weight:600">+{{ row.points_total|floatformat:0 }} pts</span>{% endif %}
+          <span>{{ row.submitted_at|date:"j N Y" }}</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if declaration_rows %}
+    <h3 style="font-size:.75rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin:0 0 .75rem">Vote declarations</h3>
+    <div style="display:flex;flex-direction:column;gap:.5rem">
+      {% for row in declaration_rows %}
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;padding:.625rem 0;border-bottom:1px solid #f3f4f6">
+        <div style="min-width:0">
+          <a href="{% url 'polium:candidate_detail' row.declaration.candidate.sqid %}"
+             style="font-size:.9375rem;color:#1a1a2e;text-decoration:none;font-weight:500">{{ row.declaration.candidate.name }}</a>
+          <span style="font-size:.8125rem;color:#9ca3af;margin-left:.375rem">in</span>
+          <a href="{% url 'polium:election_detail' row.declaration.election.sqid %}"
+             style="font-size:.8125rem;color:#6b7280;text-decoration:none;margin-left:.375rem">{{ row.declaration.election.name }}</a>
+        </div>
+        <div style="display:flex;gap:1rem;align-items:baseline;flex-shrink:0;font-size:.8125rem;color:#6b7280;white-space:nowrap">
+          {% if row.points %}<span style="color:#2d5a27;font-weight:600">+{{ row.points|floatformat:0 }} pts</span>{% endif %}
+          <span>{{ row.declaration.declared_at|date:"j N Y" }}</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+  </section>
+  {% endif %}
+
+  {% if tx_rows %}
+  <section>
+    <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.125rem;color:#1a1a2e;margin:0 0 1.25rem;padding-bottom:.625rem;border-bottom:1px solid #e5e7eb">Points history</h2>
+    <div style="display:flex;flex-direction:column;gap:.25rem">
+      {% for tx in tx_rows %}
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;padding:.5rem 0;border-bottom:1px solid #f9fafb;font-size:.875rem">
+        <div style="display:flex;align-items:baseline;gap:.625rem;min-width:0">
+          <span style="color:#2d5a27;font-weight:600;flex-shrink:0">+{{ tx.amount|floatformat:0 }}</span>
+          {% if tx.source_url %}
+          <a href="{{ tx.source_url }}" style="color:#374151;text-decoration:none">{{ tx.label }}</a>
+          {% else %}
+          <span style="color:#374151">{{ tx.label }}</span>
+          {% endif %}
+        </div>
+        <span style="color:#9ca3af;white-space:nowrap;flex-shrink:0">{{ tx.created_at|date:"j N Y" }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if not survey_rows and not declaration_rows and not tx_rows %}
+  <p style="color:#9ca3af;font-size:.9rem">No activity yet. <a href="{% url 'polium:home' %}" style="color:#2d5a27">Start with Polium →</a></p>
+  {% endif %}
+
   {% endif %}
 
 </main>
