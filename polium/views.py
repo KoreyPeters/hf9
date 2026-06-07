@@ -672,6 +672,11 @@ def add_election(request: HttpRequest, sqid: str) -> DatastarResponse:
         except ValueError:
             error = "Invalid date. Use YYYY-MM-DD format."
 
+    if not error and Election.objects.filter(
+        jurisdiction=jurisdiction, name=name, election_date=election_date
+    ).exists():
+        error = "An election with this name and date already exists in this jurisdiction."
+
     if error:
         html = render_to_string(
             "polium/partials/elections_section.html",
@@ -745,6 +750,11 @@ def add_candidate(request: HttpRequest, sqid: str) -> DatastarResponse:
                 error = "Selected election does not belong to this jurisdiction."
         except ValueError:
             error = "Invalid election."
+
+    if not error and Candidate.objects.filter(
+        jurisdiction=jurisdiction, name=name, office=office
+    ).exists():
+        error = "A candidate with this name and office already exists in this jurisdiction."
 
     if error:
         html = render_to_string(

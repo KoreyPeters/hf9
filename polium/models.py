@@ -111,6 +111,7 @@ class Election(SqidMixin):
 
     class Meta:
         indexes = [models.Index(fields=["jurisdiction", "election_date"])]
+        unique_together = [["jurisdiction", "name", "election_date"]]
 
     def __str__(self) -> str:
         return self.name
@@ -160,6 +161,7 @@ class Candidate(SqidMixin):
             models.Index(fields=["engagement_count"]),
             models.Index(fields=["is_blacklisted"]),
         ]
+        unique_together = [["jurisdiction", "name", "office"]]
 
     def __str__(self) -> str:
         return self.name
