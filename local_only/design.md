@@ -291,9 +291,41 @@ A player can enter at any point — by surveying a store they know, by browsing 
 
 ### Points Model
 
-- **Base unit:** 1 point per dollar spent
-- **Multiplier:** the store's ethics rating, expressed as a number derived from survey responses
-- **Example:** $50 spent at a store with a rating of 1.8 earns 90 points
+The points a player earns from a purchase are calculated directly from the criteria that make up the subject's rating — not from a single aggregated rating number.
+
+**Formula:**
+
+> **points per dollar = Σ (criterion value × criterion probability)**
+
+Where:
+- **criterion value** — the weight assigned to that criterion, expressed directly in points
+- **criterion probability** — the proportion of survey responses that answered "yes" to that criterion (e.g. 9 out of 10 surveys = 0.9)
+- The sum is across all active criteria with at least k survey responses
+
+> **total points = dollars spent × points per dollar**
+
+**Example:**
+- Criterion 1: value = 10 points, probability = 0.9 → contributes 9 points per dollar
+- Criterion 2: value = 100 points, probability = 0.2 → contributes 20 points per dollar
+- Points per dollar = 29. A $10 purchase earns 290 points.
+
+There is no ceiling on points per dollar. As the ethical arms race matures and more criteria are satisfied at higher probabilities, points per dollar rises accordingly. The sky is the limit — this is the incentive mechanism that drives the arms race.
+
+**What is shown on the profile**
+
+The brand profile displays the current **points per dollar** figure prominently. Players see directly how many points they will earn per dollar spent there. A brand with 29 points per dollar versus one with 4 — the choice is obvious. This is the signal that drives ethical consumer behaviour.
+
+**Membership multipliers**
+
+Membership multipliers (1.5x for Members, 2x for Sustaining Members) are applied to the final points total after the criteria calculation. They scale the output, not the underlying criterion values.
+
+**Minimum survey threshold (k)**
+
+A criterion is only included in the points calculation if it has received at least **k = 5** survey responses. Criteria with fewer than k responses are excluded entirely — not treated as 0%. This prevents new criteria from contributing noise before meaningful community signal exists. k is configurable by HF administrators.
+
+### Store Ethics Rating
+
+Every brand in the system has a points-per-dollar figure derived from player-submitted surveys across all active criteria. The figure updates continuously as new survey responses come in. Responses older than 12 months fall out of the calculation automatically.
 
 ### Store Ethics Rating
 
@@ -598,7 +630,7 @@ Candidates may endorse the HF rating system by placing a unique HF-generated lin
 
 **Eligibility:** Any candidate may endorse, regardless of their HF rating. Note that endorsement is the first step in the accountability chain — a candidate cannot be blacklisted without having first endorsed. Endorsing is therefore a meaningful public commitment, not a trivial action.
 
-**Effect on players:** A player who declares a vote for an endorsed candidate has a **2.0 modifier** applied to the standard base × rating calculation. An endorsed candidate at 80% earns a player 200 × 0.8 × 2.0 = 320 points. The endorsement has no effect on the candidate's rating, which remains entirely community-generated.
+**Effect on players:** A player who declares a vote for an endorsed candidate has a **2.0 modifier** applied to the criteria-based declaration points. If the candidate's base declaration points are 183, an endorsing player earns 366 points. The endorsement has no effect on the candidate's criteria or survey responses — it only affects the modifier applied at declaration.
 
 **The arms race dynamic:** Once one candidate in a race endorses HF, their opponent faces an implicit choice: endorse and compete on ratings, or decline and be visibly absent from the system. Absence reads as an implicit acknowledgement that the candidate does not believe their record will bear scrutiny. This pressure operates structurally — HF does not need to say anything for it to work.
 
@@ -607,7 +639,7 @@ Candidates may endorse the HF rating system by placing a unique HF-generated lin
 ### Points Model
 
 - **Survey submission** — **100 points** per first survey submitted, configurable. 50 points on second survey of the same candidate, 25 points permanently thereafter. Awarded immediately on submission. See Survey Mechanics for the full re-survey, cool-down, expiry, and visibility rules.
-- **Declared vote alignment** — points = base × candidate rating × modifier (1.0 standard, 2.0 endorsed, 0.25 blacklisted), self-reported, trust-based
+- **Declared vote alignment** — points = Σ (criterion value × criterion probability) × modifier (1.0 standard, 2.0 endorsed, 0.25 blacklisted), self-reported, trust-based
 - **Social media share** — flat 50-point bonus for sharing a vote declaration via the in-app share button. See Social Media Share Mechanics for full details.
 
 Players declare that they voted for — or intend to vote for — the highest HF-rated candidate. This declaration is unverified and earns full points regardless. This is a deliberate philosophical and behavioural design choice, not a loophole.
@@ -661,7 +693,7 @@ All thresholds are configurable by HF administrators without a code deployment, 
 **Effects of blacklisting:**
 
 - **Permanent endorsement bar** — a blacklisted politician can never re-endorse HF. The 2x endorsement multiplier is permanently unavailable to them.
-- **Points multiplier on declarations** — declaring a vote for a blacklisted candidate applies a **0.25 modifier** to the standard base × rating calculation. A blacklisted candidate at 50% earns a player 200 × 0.5 × 0.25 = 25 points. The modifier does not replace the rating — it scales it. HF always rewards engagement; the reduced modifier signals trust betrayal without silencing the community's assessment.
+- **Points multiplier on declarations** — declaring a vote for a blacklisted candidate applies a **0.25 modifier** to the criteria-based declaration points. If the candidate's base declaration points are 183, a declaring player earns 45.75 points. The modifier does not affect the underlying criteria calculation — it scales the final output. HF always rewards engagement; the reduced modifier signals trust betrayal without silencing the community's assessment.
 - **Prominent blacklist notice** on their profile with date and reason — not just a low rating but an explicit statement of betrayal
 - **Permanent historical record** — never removed, even if the politician improves their rating or changes office
 
@@ -671,24 +703,28 @@ All thresholds are configurable by HF administrators without a code deployment, 
 
 #### Points Model Consistency
 
-The Polium points formula is consistent across all candidate states:
+The same criteria-based formula applies to both Spendium and Polium. The underlying mechanism is identical — the action type determines what the base unit is.
 
-**points = base × rating × modifier**
+**Spendium (purchases):**
+> **total points = dollars spent × Σ (criterion value × criterion probability)**
 
-Where:
-- **base** — configurable base points per declaration (default: 200)
-- **rating** — the candidate's current HF rating (0.0 to 1.0)
-- **modifier** — a scaling factor based on candidate status:
-  - **1.0** — standard candidate (no endorsement, not blacklisted)
-  - **2.0** — endorsed candidate
-  - **0.25** — blacklisted candidate
+**Polium (vote declarations):**
+> **total points = Σ (criterion value × criterion probability) × modifier**
 
-The modifier scales the rating-based calculation — it does not replace it. A blacklisted candidate at 50% earns a player 200 × 0.5 × 0.25 = 25 points. An endorsed candidate at 80% earns 200 × 0.8 × 2.0 = 320 points. The rating always reflects the community's current assessment; the modifier reflects the candidate's relationship with HF.
+Where modifier is:
+- **1.0** — standard candidate
+- **2.0** — endorsed candidate
+- **0.25** — blacklisted candidate
 
-This means:
-- The endorsement multiplier rewards players for declaring for candidates who have publicly committed to HF values
-- The blacklist multiplier signals trust betrayal without removing the community's voice — a blacklisted candidate with a higher rating earns more than one with a lower rating, because the community's assessment still matters
-- HF always rewards engagement — no declaration earns zero points unless the rating itself is zero
+In both games, criteria values are expressed directly in points, criterion probability is the proportion of survey responses that answered "yes", and only criteria with at least k = 5 responses are included. There is no ceiling. As the ethical arms race matures and more criteria are satisfied at higher probabilities, point totals rise accordingly.
+
+**What is shown on the profile**
+
+The candidate profile displays the current **base declaration points** — the raw sum before any modifier is applied. A candidate showing 4,533 points versus one showing 34 points — the choice is obvious. Modifiers are applied at the point of declaration, not displayed on the profile.
+
+**Membership multipliers**
+
+Applied to the final points total after all other calculations. They scale the output, not the underlying criterion values.
 
 
 

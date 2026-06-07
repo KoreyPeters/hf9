@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db import transaction
 
 from points.service import award_points
+from surveys.ratings import compute_declaration_points
 
 from .models import Candidate, Election, VoteDeclaration
 
@@ -23,10 +24,8 @@ def _vote_multiplier(candidate: Candidate) -> Decimal:
 
 
 def declare_vote(player: Player, candidate: Candidate, election: Election) -> Decimal:
-    base = Decimal(settings.POLIUM["VOTE_DECLARATION_BASE"])
-    amount = (base * candidate.current_rating * _vote_multiplier(candidate)).quantize(
-        Decimal("0.01")
-    )
+    base = compute_declaration_points(candidate)
+    pre_membership = (base * _vote_multiplier(candidate)).quantize(Decimal("0.01"))
 
     with transaction.atomic():
         try:
@@ -39,8 +38,8 @@ def declare_vote(player: Player, candidate: Candidate, election: Election) -> De
                 candidate=candidate,
                 election=election,
             )
-            award_points(player, amount, "vote_declaration", source=declaration)
-            return amount
+            awarded = award_points(player, pre_membership, "vote_declaration", source=declaration)
+            return awarded
 
         if declaration.candidate_id == candidate.pk:
             return Decimal("0")

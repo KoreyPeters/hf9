@@ -33,10 +33,18 @@ class Player(SqidMixin, AbstractUser):
 
 
 class Membership(models.Model):
+    TIER_MEMBER = "member"
+    TIER_SUSTAINING = "sustaining_member"
+    TIER_CHOICES = [
+        (TIER_MEMBER, "Member"),
+        (TIER_SUSTAINING, "Sustaining Member"),
+    ]
+
     player = models.OneToOneField(Player, on_delete=models.CASCADE, related_name="membership")
     started_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     is_active = models.BooleanField(default=True)
+    tier = models.CharField(max_length=20, choices=TIER_CHOICES, default=TIER_MEMBER)
 
     def __str__(self) -> str:
         return f"{self.player} membership (expires {self.expires_at.date()})"

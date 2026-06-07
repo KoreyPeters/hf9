@@ -7,8 +7,8 @@ INITIAL_CRITERIA: list[dict] = [
         "category": "Climate and Environment",
         "game": "polium",
         "criteria": [
-            ("Has the candidate voted consistently to reduce carbon emissions?", 2.0),
-            ("Has the candidate opposed subsidies for fossil fuel industries?", 1.5),
+            ("Has the candidate voted consistently to reduce carbon emissions?", 100),
+            ("Has the candidate opposed subsidies for fossil fuel industries?", 75),
         ],
     },
 ]
@@ -25,7 +25,7 @@ class Command(BaseCommand):
                 defaults={"description": ""},
             )
             for question, weight in block["criteria"]:
-                Criterion.objects.get_or_create(
+                Criterion.objects.update_or_create(
                     category=cat,
                     question=question,
                     defaults={"weight": weight},

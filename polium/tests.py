@@ -9,7 +9,7 @@ from accounts.models import Player
 from accounts.utils import generate_username
 from core.tasks import _registry
 from polium.models import BlacklistHistory, Candidate, Election, Jurisdiction, JurisdictionDuplicateFlag, JurisdictionFollow, VoteDeclaration
-from surveys.models import Category, Criterion, SurveyConfig, SurveyResponse
+from surveys.models import Category, Criterion, CriterionAnswer, SurveyConfig, SurveyResponse
 
 
 @pytest.fixture
@@ -787,6 +787,27 @@ def test_election_detail_past_badge(client, jurisdiction: Jurisdiction, player: 
     assert b"Past" in resp.content
 
 
+# ── vote declaration fixtures ─────────────────────────────────────────────────
+
+@pytest.fixture
+def decl_criterion(db: None, polium_category: Category) -> Criterion:
+    return Criterion.objects.create(
+        category=polium_category, question="Decl test criterion?", weight=Decimal("100.00")
+    )
+
+
+@pytest.fixture
+def decl_config(db: None) -> SurveyConfig:
+    return SurveyConfig.objects.create(pk=1, cooldown_days=30, min_survey_threshold=1)
+
+
+def _add_survey(player: Player, candidate: Candidate, criterion: Criterion, answer: bool = True) -> None:
+    from django.contrib.contenttypes.models import ContentType
+    ct = ContentType.objects.get_for_model(Candidate)
+    sr = SurveyResponse.objects.create(player=player, content_type=ct, object_id=candidate.pk)
+    CriterionAnswer.objects.create(survey_response=sr, criterion=criterion, answer=answer)
+
+
 # ── vote declaration — service ────────────────────────────────────────────────
 
 @pytest.mark.django_db
@@ -801,16 +822,20 @@ def test_declare_creates_record(election: Election, jurisdiction: Jurisdiction, 
 
 
 @pytest.mark.django_db
-def test_declare_awards_points(election: Election, jurisdiction: Jurisdiction, verified_player: Player) -> None:
+def test_declare_awards_points(
+    election: Election, jurisdiction: Jurisdiction, verified_player: Player,
+    decl_criterion: Criterion, decl_config: SurveyConfig,
+) -> None:
     from polium import service
     c = Candidate.objects.create(
         name="Alice", jurisdiction=jurisdiction, office="MP", election=election,
         current_rating=Decimal("0.50"),
     )
+    _add_survey(verified_player, c, decl_criterion, answer=True)
     pts = service.declare_vote(verified_player, c, election)
-    assert pts > 0
+    assert pts == Decimal("100.00")
     verified_player.refresh_from_db()
-    assert verified_player.total_points == pts
+    assert verified_player.total_points == Decimal("100.00")
 
 
 @pytest.mark.django_db
@@ -861,7 +886,8 @@ def test_declare_same_candidate_idempotent(
 
 @pytest.mark.django_db
 def test_declare_endorsed_2x(
-    election: Election, jurisdiction: Jurisdiction, verified_player: Player
+    election: Election, jurisdiction: Jurisdiction, verified_player: Player,
+    decl_criterion: Criterion, decl_config: SurveyConfig,
 ) -> None:
     from django.conf import settings
     from polium import service
@@ -871,20 +897,17 @@ def test_declare_endorsed_2x(
     )
     Candidate.objects.filter(pk=c.pk).update(is_endorsed=True)
     c.refresh_from_db()
-
-    plain_pts = (
-        Decimal(settings.POLIUM["VOTE_DECLARATION_BASE"])
-        * c.current_rating
-    ).quantize(Decimal("0.01"))
-
+    _add_survey(verified_player, c, decl_criterion, answer=True)
+    # base = 100 (weight × probability=1.0), endorsed multiplier = 2.0 → 200
     endorsed_pts = service.declare_vote(verified_player, c, election)
-    expected = (plain_pts * Decimal(str(settings.POLIUM["ENDORSED_MULTIPLIER"]))).quantize(Decimal("0.01"))
+    expected = (Decimal("100") * Decimal(str(settings.POLIUM["ENDORSED_MULTIPLIER"]))).quantize(Decimal("0.01"))
     assert endorsed_pts == expected
 
 
 @pytest.mark.django_db
 def test_declare_blacklisted_025x(
-    election: Election, jurisdiction: Jurisdiction, verified_player: Player
+    election: Election, jurisdiction: Jurisdiction, verified_player: Player,
+    decl_criterion: Criterion, decl_config: SurveyConfig,
 ) -> None:
     from django.conf import settings
     from polium import service
@@ -894,13 +917,10 @@ def test_declare_blacklisted_025x(
     )
     Candidate.objects.filter(pk=c.pk).update(is_blacklisted=True)
     c.refresh_from_db()
-
+    _add_survey(verified_player, c, decl_criterion, answer=True)
+    # base = 100, blacklisted multiplier = 0.25 → 25
     pts = service.declare_vote(verified_player, c, election)
-    expected = (
-        Decimal(settings.POLIUM["VOTE_DECLARATION_BASE"])
-        * c.current_rating
-        * Decimal(str(settings.POLIUM["BLACKLIST_MULTIPLIER"]))
-    ).quantize(Decimal("0.01"))
+    expected = (Decimal("100") * Decimal(str(settings.POLIUM["BLACKLIST_MULTIPLIER"]))).quantize(Decimal("0.01"))
     assert pts == expected
 
 

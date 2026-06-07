@@ -18,7 +18,8 @@ from core.maturity import account_is_mature
 from core.tasks import enqueue
 from evidence.models import Evidence, EvidenceFlag
 from evidence.service import AlreadyFlaggedError, NotMatureError, flag_evidence, submit_evidence, vote_usefulness
-from surveys.models import Criterion, SurveyConfig, SurveyResponse
+from surveys.models import Criterion, SurveyResponse
+from surveys.ratings import compute_declaration_points
 from surveys.service import CoolDownError, check_cooldown
 
 from . import service
@@ -419,14 +420,14 @@ def candidate_link_election(request: HttpRequest, sqid: str) -> DatastarResponse
 
 def _points_preview(candidate: Candidate) -> str:
     from django.conf import settings
-    base = Decimal(settings.POLIUM["VOTE_DECLARATION_BASE"])
+    base = compute_declaration_points(candidate)
     if candidate.is_endorsed:
         mult = Decimal(str(settings.POLIUM["ENDORSED_MULTIPLIER"]))
     elif candidate.is_blacklisted:
         mult = Decimal(str(settings.POLIUM["BLACKLIST_MULTIPLIER"]))
     else:
         mult = Decimal("1")
-    pts = (base * candidate.current_rating * mult).quantize(Decimal("1"))
+    pts = (base * mult).quantize(Decimal("1"))
     return str(pts)
 
 
@@ -879,20 +880,9 @@ def submit_survey(request: HttpRequest, sqid: str) -> DatastarResponse:
         return _render({"error": "Please answer at least one question before submitting."})
 
     try:
-        response = svc_submit(request.user, candidate, answers)
+        _, points_awarded = svc_submit(request.user, candidate, answers)
     except CoolDownError:
         return _render({})
-
-    config = SurveyConfig.get()
-    if response.submit_count == 1:
-        points_awarded: int = config.survey_points_first
-    elif response.submit_count == 2:
-        points_awarded = config.survey_points_second
-    else:
-        points_awarded = config.survey_points_subsequent
-
-    if not request.user.email_verified:
-        points_awarded = 0
 
     enqueue("update-candidate-rating", {"candidate_id": candidate.pk})
     candidate.refresh_from_db()

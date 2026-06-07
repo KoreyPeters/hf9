@@ -108,7 +108,7 @@ def test_first_survey_no_cooldown(player: Player, candidate, survey_config: Surv
 def test_submit_creates_response(
     player: Player, candidate, criterion: Criterion, survey_config: SurveyConfig
 ) -> None:
-    response = submit_survey(player, candidate, {criterion.pk: True})
+    response, _ = submit_survey(player, candidate, {criterion.pk: True})
     assert SurveyResponse.objects.filter(player=player).count() == 1
     assert response.answers.filter(criterion=criterion, answer=True).exists()
 
@@ -131,7 +131,7 @@ def test_cooldown_allows_resubmit_after_expiry(
     SurveyResponse.objects.filter(player=player).update(
         submitted_at=timezone.now() - timedelta(days=31)
     )
-    response = submit_survey(player, candidate, {criterion.pk: False})
+    response, _ = submit_survey(player, candidate, {criterion.pk: False})
     assert response.answers.filter(answer=False).exists()
 
 
@@ -187,7 +187,7 @@ def test_cooldown_respects_config_value(
     SurveyResponse.objects.filter(player=player).update(
         submitted_at=timezone.now() - timedelta(days=8)
     )
-    response = submit_survey(player, candidate, {criterion.pk: False})
+    response, _ = submit_survey(player, candidate, {criterion.pk: False})
     assert response is not None
 
 
@@ -285,7 +285,7 @@ def test_points_not_awarded_to_unverified_player(
 def test_points_source_is_survey_response(
     player: Player, candidate, criterion: Criterion, survey_config: SurveyConfig
 ) -> None:
-    response = submit_survey(player, candidate, {criterion.pk: True})
+    response, _ = submit_survey(player, candidate, {criterion.pk: True})
     tx = PointTransaction.objects.get(player=player)
     assert tx.object_id == response.pk
     assert tx.content_type == ContentType.objects.get_for_model(SurveyResponse)
