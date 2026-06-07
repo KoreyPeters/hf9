@@ -898,5 +898,3 @@ def submit_survey(request: HttpRequest, sqid: str) -> DatastarResponse:
     )
 
 
-def declare_vote(request: HttpRequest, sqid: str) -> HttpResponse:
-    return HttpResponse("TODO")

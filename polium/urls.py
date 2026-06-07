@@ -30,7 +30,6 @@ urlpatterns = [
     path("candidates/<str:sqid>/link-election-form/", views.candidate_link_election_form, name="candidate_link_election_form"),
     path("candidates/<str:sqid>/link-election/", views.candidate_link_election, name="candidate_link_election"),
     path("candidates/<str:sqid>/survey/", views.submit_survey, name="submit_survey"),
-    path("candidates/<str:sqid>/declare/", views.declare_vote, name="declare_vote"),
     path("privacy/", views.privacy, name="privacy"),
     path("candidates/<str:sqid>/evidence/submit/", views.evidence_submit, name="evidence_submit"),
     path("evidence/<int:pk>/vote/", views.evidence_vote, name="evidence_vote"),
