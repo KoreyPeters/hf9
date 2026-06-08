@@ -90,7 +90,7 @@ def test_polium_game_loop(live_server, make_logged_in_page):
     expect(p1.locator(".nav-points")).to_have_text("100 pts")
 
     # ── Step 10: Confirm candidate rating (yes/10 + no/100 = 10/110 ≈ 9%) ────
-    expect(p1.locator("main")).to_contain_text("Rating: 9%")
+    expect(p1.locator("main")).to_contain_text("Rating: 9 pts")
 
     # ── Step 11: Navigate to First Election and declare for John Smith1 ────────
     # The candidate profile has no election link — go via the Polium home,
@@ -184,7 +184,7 @@ def test_polium_game_loop(live_server, make_logged_in_page):
     expect(p2.locator(".nav-points")).to_have_text("100 pts")
 
     # ── Step 10: Confirm candidate rating (yes/10 + no/100 = 10/110 ≈ 9%) ────
-    expect(p2.locator("main")).to_contain_text("Rating: 50%")
+    expect(p2.locator("main")).to_contain_text("Rating: 50 pts")
 
     # ── Step 11: Navigate to First Election and declare for John Smith1 ────────
     p2.goto(f"{live_server.url}/polium/")
@@ -198,4 +198,89 @@ def test_polium_game_loop(live_server, make_logged_in_page):
     # (k-threshold not met), so declaring adds no points at this stage.
     p2.reload()
     expect(p2.locator(".nav-points")).to_have_text("100 pts")
+
+    # ── Player 3 ──────────────────────────────────────────────────────────────
+    player3 = Player.objects.create_user(
+        username=generate_username(), email="player3@example.com", password=None
+    )
+    Player.objects.filter(pk=player3.pk).update(email_verified=True)
+    player3.refresh_from_db()
+
+    # ── Step 1: Player 3 logs in and navigates to Polium home ─────────────────
+    p3: Page = make_logged_in_page(player3)
+    p3.goto(f"{live_server.url}/polium/")
+    expect(p3.locator("h1")).to_have_text("Polium")
+    expect(p3.locator("#jurisdiction-search")).to_be_visible()
+
+    # ── Step 2: Confirm no elections, candidates, or jurisdictions are listed ──
+    expect(p3.locator("a[href*='/polium/elections/']")).to_have_count(0)
+    expect(p3.locator("a[href*='/polium/candidates/']")).to_have_count(0)
+    expect(p3.locator("a[href*='/polium/jurisdictions/']")).to_have_count(0)
+
+    # ── Step 3: Search "california", find existing suggestion, follow it ──────
+    p3.locator("#jurisdiction-search").fill("california")
+    expect(p3.locator("#search-results")).to_contain_text("California")
+    expect(p3.locator("#search-results")).not_to_contain_text("No jurisdictions found.")
+    p3.locator("#search-results button[type='submit']").click()
+    p3.wait_for_url(f"{live_server.url}/polium/")
+
+    # ── Step 4: Confirm California appears as a followed jurisdiction ──────────
+    expect(p3.get_by_role("link", name="California", exact=True)).to_be_visible()
+
+    # ── Step 5: Navigate to California — "First Election" already visible ──────
+    p3.get_by_role("link", name="California", exact=True).click()
+    expect(p3.locator("h1")).to_contain_text("California")
+    expect(p3.get_by_role("link", name="First Election")).to_be_visible()
+    p3.get_by_role("button", name="+ Add election").click()
+    expect(p3.get_by_role("heading", name="Add election")).to_be_visible()
+    p3.locator("input[data-bind\\:election_name]").fill("First Election")
+    p3.locator("input[data-bind\\:election_date]").fill("2027-11-04")
+    p3.get_by_test_id("save-election").click()
+    expect(p3.locator("#elections-section")).to_contain_text("already exists")
+
+    # ── Step 6: "John Smith1" already visible; duplicate rejected; add John Smith2
+    expect(p3.get_by_role("link", name="John Smith1")).to_be_visible()
+    p3.get_by_role("button", name="+ Add candidate").click()
+    expect(p3.get_by_role("heading", name="Add candidate")).to_be_visible()
+    p3.locator("input[data-bind\\:candidate_name]").fill("John Smith1")
+    p3.locator("input[data-bind\\:candidate_office]").fill("State Governor")
+    p3.locator("select[data-bind\\:candidate_election_id]").select_option(index=1)
+    p3.get_by_test_id("save-candidate").click()
+    expect(p3.locator("#candidates-section")).to_contain_text("already exists")
+    p3.locator("input[data-bind\\:candidate_name]").fill("John Smith2")
+    p3.locator("input[data-bind\\:candidate_office]").fill("State Governor")
+    p3.locator("select[data-bind\\:candidate_election_id]").select_option(index=1)
+    p3.get_by_test_id("save-candidate").click()
+    expect(p3.get_by_role("link", name="John Smith2")).to_be_visible()
+
+    # ── Step 7: Confirm player has zero points ────────────────────────────────
+    expect(p3.locator(".nav-points")).to_have_text("0 pts")
+
+    # ── Step 8: Navigate to John Smith2 and submit a survey ───────────────────
+    p3.get_by_role("link", name="John Smith2").click()
+    expect(p3.locator("h1")).to_contain_text("John Smith2")
+    # No surveys yet — rating must be 0
+    expect(p3.locator("main")).to_contain_text("Rating: 0 pts")
+    p3.locator(f"input[name='criterion_{crit_one.pk}'][value='no']").check()
+    p3.locator(f"input[name='criterion_{crit_two.pk}'][value='yes']").check()
+    p3.get_by_role("button", name="Submit survey").click()
+    expect(p3.locator("#survey-section")).to_contain_text("Survey submitted!")
+
+    # ── Step 9: Player earns 100 points (first survey, default config) ────────
+    p3.reload()
+    expect(p3.locator(".nav-points")).to_have_text("100 pts")
+
+    # ── Step 10: Confirm John Smith2 rating (no/10 + yes/100 = 100/110 ≈ 91%) ─
+    expect(p3.locator("main")).to_contain_text("Rating: 91 pts")
+
+    # ── Step 11: Navigate to First Election and declare for John Smith2 ────────
+    p3.goto(f"{live_server.url}/polium/")
+    p3.get_by_role("link", name="First Election").click()
+    expect(p3.locator("h1")).to_contain_text("First Election")
+    p3.get_by_role("button", name="Declare", exact=True).first.click()
+    expect(p3.locator("#election-declare-section")).to_contain_text("You declared for John Smith2")
+
+    # ── Step 12: Reload and confirm points unchanged at 100 ───────────────────
+    p3.reload()
+    expect(p3.locator(".nav-points")).to_have_text("100 pts")
 

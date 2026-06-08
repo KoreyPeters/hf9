@@ -1,7 +1,7 @@
 <div id="survey-section" style="margin-bottom:2.5rem">
   <h2 style="font-size:1rem;font-weight:600;color:#374151;margin-bottom:.5rem">Survey this candidate</h2>
   <p style="font-size:.875rem;color:#6b7280;margin-bottom:1.25rem">
-    Current rating: {% widthratio candidate.current_rating 1 100 %}%
+    Current rating: {% widthratio candidate.current_rating 1 100 %} pts
   </p>
 
   {% if survey_state == "anonymous" %}
@@ -16,7 +16,7 @@
       <p style="margin:0 0 .25rem;font-size:.875rem;color:#166534">You earned {{ points_awarded }} points.</p>
       {% endif %}
       <p style="margin:0;font-size:.875rem;color:#166534">
-        Updated rating: {% widthratio candidate.current_rating 1 100 %}%
+        Updated rating: {% widthratio candidate.current_rating 1 100 %} pts
       </p>
     </div>
     <p style="font-size:.8rem;color:#9ca3af">You can survey this candidate again in 30 days.</p>

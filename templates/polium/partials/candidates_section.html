@@ -17,7 +17,7 @@
         </div>
         <div style="text-align:right;flex-shrink:0;margin-left:1rem">
           <div style="font-size:.875rem;font-weight:600;color:{% if candidate.is_blacklisted %}#991b1b{% else %}#111{% endif %}">
-            {% widthratio candidate.current_rating 1 100 %}%
+            {% widthratio candidate.current_rating 1 100 %} pts
           </div>
           {% if candidate.is_blacklisted %}
           <div style="font-size:.75rem;color:#991b1b">Blacklisted</div>
