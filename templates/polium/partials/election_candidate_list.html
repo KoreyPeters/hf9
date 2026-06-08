@@ -1,6 +1,6 @@
 {% if candidates_with_preview %}
 <div style="display:flex;flex-direction:column;gap:.75rem">
-  {% for candidate, preview in candidates_with_preview %}
+  {% for candidate, preview, below_threshold in candidates_with_preview %}
   {% ifchanged candidate.is_blacklisted %}{% if candidate.is_blacklisted %}
   <p style="font-size:.8rem;color:#9ca3af;margin:.5rem 0 .25rem">Blacklisted candidates</p>
   {% endif %}{% endifchanged %}
@@ -22,6 +22,11 @@
         {% if candidate.is_endorsed %}<span style="color:#047857">(2&times; endorsed)</span>{% endif %}
         {% if candidate.is_blacklisted %}<span style="color:#991b1b">(0.25&times; blacklisted)</span>{% endif %}
       </div>
+      {% if below_threshold %}
+      <div style="font-size:.75rem;color:#92400e;background:#fef3c7;border:1px solid #fde68a;border-radius:4px;padding:.3rem .6rem;margin-top:.4rem">
+        &#9888; Fewer than 5 surveys recorded &mdash; consider waiting for more ratings before declaring.
+      </div>
+      {% endif %}
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.5rem;flex-shrink:0">
       <a href="{% url 'polium:candidate_detail' candidate.sqid %}"

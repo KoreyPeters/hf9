@@ -431,6 +431,23 @@ def _points_preview(candidate: Candidate) -> str:
     return str(pts)
 
 
+def _below_threshold(candidate: Candidate) -> bool:
+    """True when the candidate has survey responses but no criterion yet meets the k-threshold."""
+    from django.utils import timezone
+    ct = ContentType.objects.get_for_model(candidate)
+    cutoff = timezone.now() - timedelta(days=365)
+    has_responses = SurveyResponse.objects.filter(
+        content_type=ct, object_id=candidate.pk, submitted_at__gte=cutoff
+    ).exists()
+    if not has_responses:
+        return False
+    return compute_declaration_points(candidate) == Decimal("0")
+
+
+def _candidates_with_info(candidates: list[Candidate]) -> list[tuple[Candidate, str, bool]]:
+    return [(c, _points_preview(c), _below_threshold(c)) for c in candidates]
+
+
 def _declare_ctx(
     election: Election,
     candidates: list[Candidate],
@@ -438,10 +455,9 @@ def _declare_ctx(
     points_awarded: str | None = None,
     error: str = "",
 ) -> dict[str, object]:
-    candidates_with_preview = [(c, _points_preview(c)) for c in candidates]
     return {
         "election": election,
-        "candidates_with_preview": candidates_with_preview,
+        "candidates_with_preview": _candidates_with_info(candidates),
         "declaration": declaration,
         "points_awarded": points_awarded,
         "error": error,
@@ -463,7 +479,7 @@ def election_detail(request: HttpRequest, sqid: str) -> HttpResponse:
     today = date.today()
     return render(request, "polium/election_detail.html", {
         "election": election,
-        "candidates_with_preview": [(c, _points_preview(c)) for c in candidates],
+        "candidates_with_preview": _candidates_with_info(candidates),
         "declaration": declaration,
         "today": today,
     })

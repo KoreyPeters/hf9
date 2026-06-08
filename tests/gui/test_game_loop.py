@@ -98,6 +98,8 @@ def test_polium_game_loop(live_server, make_logged_in_page):
     p1.goto(f"{live_server.url}/polium/")
     p1.get_by_role("link", name="First Election").click()
     expect(p1.locator("h1")).to_contain_text("First Election")
+    # Only 1 survey recorded — below k-threshold warning must be visible
+    expect(p1.locator("#election-declare-section")).to_contain_text("Fewer than 5 surveys recorded")
     p1.get_by_role("button", name="Declare").click()
     expect(p1.locator("#election-declare-section")).to_contain_text("You declared for John Smith1")
 
@@ -284,3 +286,147 @@ def test_polium_game_loop(live_server, make_logged_in_page):
     p3.reload()
     expect(p3.locator(".nav-points")).to_have_text("100 pts")
 
+    # ── Player 3 also surveys John Smith1 (3rd survey of JS1; count now 3) ────
+    p3.goto(f"{live_server.url}/polium/")
+    p3.get_by_role("link", name="California", exact=True).click()
+    p3.get_by_role("link", name="John Smith1").click()
+    expect(p3.locator("h1")).to_contain_text("John Smith1")
+    p3.locator(f"input[name='criterion_{crit_one.pk}'][value='yes']").check()
+    p3.locator(f"input[name='criterion_{crit_two.pk}'][value='no']").check()
+    p3.get_by_role("button", name="Submit survey").click()
+    expect(p3.locator("#survey-section")).to_contain_text("Survey submitted!")
+    p3.reload()
+    expect(p3.locator(".nav-points")).to_have_text("200 pts")
+
+    # ── Player 4 ──────────────────────────────────────────────────────────────
+    player4 = Player.objects.create_user(
+        username=generate_username(), email="player4@example.com", password=None
+    )
+    Player.objects.filter(pk=player4.pk).update(email_verified=True)
+    player4.refresh_from_db()
+
+    p4: Page = make_logged_in_page(player4)
+    p4.goto(f"{live_server.url}/polium/")
+    expect(p4.locator("#jurisdiction-search")).to_be_visible()
+    p4.locator("#jurisdiction-search").fill("california")
+    expect(p4.locator("#search-results")).to_contain_text("California")
+    p4.locator("#search-results button[type='submit']").click()
+    p4.wait_for_url(f"{live_server.url}/polium/")
+
+    # ── Step 8: Survey John Smith1 (4th survey — brings count to 4) ──────────
+    p4.get_by_role("link", name="California", exact=True).click()
+    p4.get_by_role("link", name="John Smith1").click()
+    expect(p4.locator("h1")).to_contain_text("John Smith1")
+    p4.locator(f"input[name='criterion_{crit_one.pk}'][value='yes']").check()
+    p4.locator(f"input[name='criterion_{crit_two.pk}'][value='no']").check()
+    p4.get_by_role("button", name="Submit survey").click()
+    expect(p4.locator("#survey-section")).to_contain_text("Survey submitted!")
+    p4.reload()
+    expect(p4.locator(".nav-points")).to_have_text("100 pts")
+
+    # ── Step 9: Declare for John Smith1, then change to John Smith2 ───────────
+    p4.goto(f"{live_server.url}/polium/")
+    p4.get_by_role("link", name="First Election").click()
+    expect(p4.locator("h1")).to_contain_text("First Election")
+    # First declaration — John Smith1 (last in list; JS2 has higher rating so appears first)
+    p4.get_by_role("button", name="Declare", exact=True).last.click()
+    expect(p4.locator("#election-declare-section")).to_contain_text("You declared for John Smith1")
+    # Change declaration to John Smith2 — button now says "Change" since a declaration exists
+    p4.get_by_text("Change declaration").click()
+    p4.get_by_role("button", name="Change", exact=True).click()
+    expect(p4.locator("#election-declare-section")).to_contain_text("You declared for John Smith2")
+    p4.reload()
+    expect(p4.locator(".nav-points")).to_have_text("100 pts")
+
+    # ── Player 5 ──────────────────────────────────────────────────────────────
+    player5 = Player.objects.create_user(
+        username=generate_username(), email="player5@example.com", password=None
+    )
+    Player.objects.filter(pk=player5.pk).update(email_verified=True)
+    player5.refresh_from_db()
+
+    p5: Page = make_logged_in_page(player5)
+    p5.goto(f"{live_server.url}/polium/")
+    p5.locator("#jurisdiction-search").fill("california")
+    expect(p5.locator("#search-results")).to_contain_text("California")
+    p5.locator("#search-results button[type='submit']").click()
+    p5.wait_for_url(f"{live_server.url}/polium/")
+
+    # Before surveying: JS1 has 4 surveys — below k=5, worth 0 pts, warning visible
+    p5.get_by_role("link", name="First Election").click()
+    expect(p5.locator("#election-declare-section")).to_contain_text("Fewer than 5 surveys recorded")
+    expect(p5.locator("#election-declare-section")).to_contain_text("Worth ~0 pts")
+
+    # Survey John Smith1 — 5th survey, hits k-threshold exactly
+    p5.goto(f"{live_server.url}/polium/")
+    p5.get_by_role("link", name="California", exact=True).click()
+    p5.get_by_role("link", name="John Smith1").click()
+    expect(p5.locator("h1")).to_contain_text("John Smith1")
+    p5.locator(f"input[name='criterion_{crit_one.pk}'][value='yes']").check()
+    p5.locator(f"input[name='criterion_{crit_two.pk}'][value='no']").check()
+    p5.get_by_role("button", name="Submit survey").click()
+    expect(p5.locator("#survey-section")).to_contain_text("Survey submitted!")
+    p5.reload()
+    expect(p5.locator(".nav-points")).to_have_text("100 pts")
+
+    # After threshold met: JS1 now worth 28 pts (crit1: 4/5×10=8, crit2: 1/5×100=20)
+    p5.goto(f"{live_server.url}/polium/")
+    p5.get_by_role("link", name="First Election").click()
+    expect(p5.locator("#election-declare-section")).to_contain_text("Worth ~28 pts")
+
+    # Declare for John Smith1 — first declaration that earns real points
+    p5.get_by_role("button", name="Declare", exact=True).last.click()
+    expect(p5.locator("#election-declare-section")).to_contain_text("You declared for John Smith1")
+    expect(p5.locator("#election-declare-section")).to_contain_text("+28 points earned")
+    p5.reload()
+    expect(p5.locator(".nav-points")).to_have_text("128 pts")
+
+    # ── Player 6 ──────────────────────────────────────────────────────────────
+    player6 = Player.objects.create_user(
+        username=generate_username(), email="player6@example.com", password=None
+    )
+    Player.objects.filter(pk=player6.pk).update(email_verified=True)
+    player6.refresh_from_db()
+
+    p6: Page = make_logged_in_page(player6)
+    p6.goto(f"{live_server.url}/polium/")
+    p6.locator("#jurisdiction-search").fill("california")
+    expect(p6.locator("#search-results")).to_contain_text("California")
+    p6.locator("#search-results button[type='submit']").click()
+    p6.wait_for_url(f"{live_server.url}/polium/")
+
+    # JS1 already above threshold — confirm real points preview still visible
+    p6.get_by_role("link", name="First Election").click()
+    expect(p6.locator("#election-declare-section")).to_contain_text("Worth ~28 pts")
+
+    # Survey John Smith1 — 6th survey, further above threshold
+    p6.goto(f"{live_server.url}/polium/")
+    p6.get_by_role("link", name="California", exact=True).click()
+    p6.get_by_role("link", name="John Smith1").click()
+    expect(p6.locator("h1")).to_contain_text("John Smith1")
+    p6.locator(f"input[name='criterion_{crit_one.pk}'][value='yes']").check()
+    p6.locator(f"input[name='criterion_{crit_two.pk}'][value='no']").check()
+    p6.get_by_role("button", name="Submit survey").click()
+    expect(p6.locator("#survey-section")).to_contain_text("Survey submitted!")
+    p6.reload()
+    expect(p6.locator(".nav-points")).to_have_text("100 pts")
+
+    # Points preview updated after 6th survey (crit1: 5/6×10=8.33, crit2: 1/6×100=16.67 → 25)
+    p6.goto(f"{live_server.url}/polium/")
+    p6.get_by_role("link", name="First Election").click()
+    expect(p6.locator("#election-declare-section")).to_contain_text("Worth ~25 pts")
+
+    # Declare for John Smith1 — earns 25 pts
+    p6.get_by_role("button", name="Declare", exact=True).last.click()
+    expect(p6.locator("#election-declare-section")).to_contain_text("You declared for John Smith1")
+    expect(p6.locator("#election-declare-section")).to_contain_text("+25 points earned")
+    p6.reload()
+    expect(p6.locator(".nav-points")).to_have_text("125 pts")
+
+    # Switch from John Smith1 (hero, 25 pts) to John Smith2 (zero, below threshold)
+    # Option B: delta = 0 - 25 = -25 pts deducted
+    p6.get_by_text("Change declaration").click()
+    p6.get_by_role("button", name="Change").click()
+    expect(p6.locator("#election-declare-section")).to_contain_text("You declared for John Smith2")
+    p6.reload()
+    expect(p6.locator(".nav-points")).to_have_text("100 pts")
