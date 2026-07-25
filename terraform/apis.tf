@@ -10,6 +10,11 @@ locals {
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
     "compute.googleapis.com",
+    # Receipt extraction and Tier 2 adjudication call Gemini on Vertex AI.
+    "aiplatform.googleapis.com",
+    # Budget alerts and the notification channels they fire through.
+    "billingbudgets.googleapis.com",
+    "monitoring.googleapis.com",
   ])
 }
 
