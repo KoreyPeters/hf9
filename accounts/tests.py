@@ -272,7 +272,7 @@ def test_player_profile_authenticated_owner_sees_own_profile_flag(client, player
     client.force_login(player)
     resp = client.get(f"/accounts/profile/{player.sqid}/")
     assert resp.status_code == 200
-    assert b"your profile" in resp.content
+    assert b"No activity" in resp.content
 
 
 @pytest.mark.django_db

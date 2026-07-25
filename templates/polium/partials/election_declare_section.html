@@ -1,0 +1,35 @@
+<div id="election-declare-section" data-signals='{"candidate_sqid": ""}'>
+
+  {% if declaration and not error %}
+  {% if points_awarded %}
+  <div style="background:#d1fae5;border:1px solid #6ee7b7;border-radius:6px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.875rem;color:#065f46">
+    +{{ points_awarded }} points earned for your declaration.
+  </div>
+  {% endif %}
+  <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:1rem 1.25rem;margin-bottom:1.25rem">
+    <p style="margin:0 0 .25rem;font-size:.875rem;color:#374151;font-weight:500">
+      You declared for <strong>{{ declaration.candidate.name }}</strong>
+    </p>
+    <p style="margin:0;font-size:.8rem;color:#6b7280">
+      {{ declaration.candidate.office }} &middot; declared {{ declaration.declared_at|date }}
+    </p>
+  </div>
+  <details style="font-size:.875rem;margin-bottom:1rem">
+    <summary style="color:#1d4ed8;cursor:pointer;list-style:none">Change declaration</summary>
+    <div style="margin-top:1rem">
+      {% include "polium/partials/election_candidate_list.html" %}
+    </div>
+  </details>
+  {% else %}
+  {% if error %}
+  <p style="color:#b91c1c;font-size:.8rem;margin:0 0 .75rem">{{ error }}</p>
+  {% endif %}
+  {% include "polium/partials/election_candidate_list.html" %}
+  {% if not user.is_authenticated %}
+  <p style="margin-top:1rem;font-size:.875rem;color:#6b7280">
+    <a href="{% url 'accounts:login' %}" style="color:#1d4ed8">Log in</a> to declare your vote and earn points.
+  </p>
+  {% endif %}
+  {% endif %}
+
+</div>

@@ -184,3 +184,11 @@ LIFECYCLE = {
     "MATURITY_ACCOUNT_AGE_DAYS": 7,
     "MATURITY_SURVEY_COUNT": 3,
 }
+
+POLIUM = {
+    "ENDORSED_MULTIPLIER": config("ENDORSED_MULTIPLIER", default=2.0, cast=float),
+    "BLACKLIST_MULTIPLIER": config("BLACKLIST_MULTIPLIER", default=0.25, cast=float),
+}
+
+MEMBER_MULTIPLIER: float = config("MEMBER_MULTIPLIER", default=1.5, cast=float)
+SUSTAINING_MEMBER_MULTIPLIER: float = config("SUSTAINING_MEMBER_MULTIPLIER", default=2.0, cast=float)

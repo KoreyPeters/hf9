@@ -62,6 +62,10 @@ class SurveyConfig(models.Model):
     survey_points_first = models.PositiveIntegerField(default=100)
     survey_points_second = models.PositiveIntegerField(default=50)
     survey_points_subsequent = models.PositiveIntegerField(default=25)
+    min_survey_threshold = models.PositiveIntegerField(
+        default=5,
+        help_text="Minimum survey responses a criterion must have to count toward declaration points.",
+    )
 
     class Meta:
         verbose_name = "Survey configuration"

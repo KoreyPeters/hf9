@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
@@ -33,7 +34,6 @@ def _get_existing(
 
 
 def check_cooldown(player: object, subject: Model) -> timedelta | None:
-    """Return remaining cool-down timedelta, or None if the player may submit now."""
     ct = ContentType.objects.get_for_model(subject)
     existing = _get_existing(player, ct, subject.pk)
     if existing is None:
@@ -51,13 +51,7 @@ def submit_survey(
     player: object,
     subject: Model,
     answers: dict[int, bool],
-) -> SurveyResponse:
-    """
-    Create or replace the player's survey response for subject.
-
-    answers maps criterion PKs to boolean responses.
-    Raises CoolDownError if the player is within the cool-down window.
-    """
+) -> tuple[SurveyResponse, Decimal]:
     ct = ContentType.objects.get_for_model(subject)
     existing = _get_existing(player, ct, subject.pk)
 
@@ -94,6 +88,5 @@ def submit_survey(
     else:
         amount = config.survey_points_subsequent
 
-    award_points(player, amount, "survey", source=response)
-
-    return response
+    points = award_points(player, amount, "survey", source=response)
+    return response, points

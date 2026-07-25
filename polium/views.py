@@ -1,4 +1,6 @@
-from datetime import date
+from datetime import date, timedelta
+from decimal import Decimal
+from itertools import groupby
 
 from datastar_py.django import DatastarResponse, ServerSentEventGenerator, read_signals
 from django.contrib import messages
@@ -13,11 +15,15 @@ from django.template.loader import render_to_string
 from django.views.decorators.http import require_POST
 
 from core.maturity import account_is_mature
+from core.tasks import enqueue
 from evidence.models import Evidence, EvidenceFlag
 from evidence.service import AlreadyFlaggedError, NotMatureError, flag_evidence, submit_evidence, vote_usefulness
-from surveys.models import Criterion
+from surveys.models import Criterion, SurveyResponse
+from surveys.ratings import compute_declaration_points
+from surveys.service import CoolDownError, check_cooldown
 
-from .models import Candidate, Election, Jurisdiction, JurisdictionDuplicateFlag, JurisdictionFollow
+from . import service
+from .models import Candidate, Election, Jurisdiction, JurisdictionDuplicateFlag, JurisdictionFollow, VoteDeclaration
 
 _VALID_LEVELS = {"country", "province", "region", "city", "other"}
 
@@ -225,6 +231,49 @@ def unfollow_jurisdiction(request: HttpRequest) -> HttpResponse:
     return redirect("polium:home")
 
 
+def _survey_ctx(request: HttpRequest, candidate: Candidate) -> dict[str, object]:
+    criteria_qs = list(
+        Criterion.objects
+        .filter(is_active=True, category__game="polium")
+        .select_related("category")
+        .order_by("category__name", "question")
+    )
+    criteria_by_category: list[tuple[object, list[Criterion]]] = [
+        (cat, list(crits))
+        for cat, crits in groupby(criteria_qs, key=lambda c: c.category)
+    ]
+    survey_state = "anonymous"
+    cooldown_remaining: timedelta | None = None
+    existing_answer_rows: list[tuple[str, bool]] = []
+    if request.user.is_authenticated:
+        cooldown_remaining = check_cooldown(request.user, candidate)
+        if cooldown_remaining is not None:
+            survey_state = "in_cooldown"
+            ct = ContentType.objects.get_for_model(Candidate)
+            latest = (
+                SurveyResponse.objects
+                .filter(player=request.user, content_type=ct, object_id=candidate.pk)
+                .order_by("-submitted_at")
+                .first()
+            )
+            if latest:
+                answer_map = {a.criterion_id: a.answer for a in latest.answers.all()}
+                existing_answer_rows = [
+                    (c.question, answer_map[c.pk])
+                    for c in criteria_qs
+                    if c.pk in answer_map
+                ]
+        else:
+            survey_state = "ready"
+    return {
+        "survey_state": survey_state,
+        "cooldown_remaining": cooldown_remaining,
+        "criteria_by_category": criteria_by_category,
+        "existing_answer_rows": existing_answer_rows,
+        "criteria": criteria_qs,
+    }
+
+
 def candidate_detail(request: HttpRequest, sqid: str) -> HttpResponse:
     candidate = get_object_or_404(Candidate, sqid=sqid)
     ct = ContentType.objects.get_for_model(Candidate)
@@ -241,14 +290,20 @@ def candidate_detail(request: HttpRequest, sqid: str) -> HttpResponse:
         candidate.blacklist_history.order_by("-blacklisted_at").first()
         if candidate.is_blacklisted else None
     )
-    criteria = Criterion.objects.filter(is_active=True).order_by("category__name", "question")
-    return render(request, "polium/candidate_profile.html", {
+    elections_for_form: list[Election] = []
+    if candidate.jurisdiction_id:
+        elections_for_form = list(
+            Election.objects.filter(jurisdiction=candidate.jurisdiction).order_by("-election_date")
+        )
+    ctx: dict[str, object] = {
         "candidate": candidate,
         "evidence_list": evidence_qs,
         "blacklist_record": blacklist_record,
-        "criteria": criteria,
         "flag_reasons": EvidenceFlag.REASON_CHOICES,
-    })
+        "elections_for_form": elections_for_form,
+    }
+    ctx.update(_survey_ctx(request, candidate))
+    return render(request, "polium/candidate_profile.html", ctx)
 
 
 @login_required
@@ -287,8 +342,202 @@ def evidence_flag(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect(request.META.get("HTTP_REFERER", "/"))
 
 
+def _candidate_election_ctx(candidate: Candidate, show_form: bool, error: str = "") -> dict[str, object]:
+    elections_for_form: list[Election] = []
+    if candidate.jurisdiction_id:
+        elections_for_form = list(
+            Election.objects.filter(jurisdiction=candidate.jurisdiction).order_by("-election_date")
+        )
+    return {
+        "candidate": candidate,
+        "elections_for_form": elections_for_form,
+        "show_form": show_form,
+        "error": error,
+    }
+
+
+def candidate_election_section(request: HttpRequest, sqid: str) -> DatastarResponse:
+    candidate = get_object_or_404(Candidate, sqid=sqid)
+    html = render_to_string(
+        "polium/partials/candidate_election_section.html",
+        _candidate_election_ctx(candidate, show_form=False),
+        request=request,
+    )
+    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#candidate-election-section"))
+
+
+@login_required
+def candidate_link_election_form(request: HttpRequest, sqid: str) -> DatastarResponse:
+    candidate = get_object_or_404(Candidate, sqid=sqid)
+    html = render_to_string(
+        "polium/partials/candidate_election_section.html",
+        _candidate_election_ctx(candidate, show_form=True),
+        request=request,
+    )
+    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#candidate-election-section"))
+
+
+@login_required
+@require_POST
+def candidate_link_election(request: HttpRequest, sqid: str) -> DatastarResponse:
+    candidate = get_object_or_404(Candidate, sqid=sqid)
+    signals = read_signals(request) or {}
+    election_id_str = str(signals.get("candidate_election_id", "")).strip()
+
+    error = ""
+    election: Election | None = None
+
+    if election_id_str:
+        try:
+            eid = int(election_id_str)
+            election = Election.objects.filter(pk=eid, jurisdiction=candidate.jurisdiction).first()
+            if election is None:
+                error = "Selected election does not belong to this jurisdiction."
+        except ValueError:
+            error = "Invalid election selection."
+
+    if error:
+        html = render_to_string(
+            "polium/partials/candidate_election_section.html",
+            _candidate_election_ctx(candidate, show_form=True, error=error),
+            request=request,
+        )
+        return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#candidate-election-section"))
+
+    candidate.election = election
+    candidate.save(update_fields=["election"])
+
+    html = render_to_string(
+        "polium/partials/candidate_election_section.html",
+        _candidate_election_ctx(candidate, show_form=False),
+        request=request,
+    )
+    return DatastarResponse([
+        ServerSentEventGenerator.patch_elements(html, selector="#candidate-election-section"),
+        ServerSentEventGenerator.patch_signals({"candidate_election_id": ""}),
+    ])
+
+
+def _points_preview(candidate: Candidate) -> str:
+    from django.conf import settings
+    base = compute_declaration_points(candidate)
+    if candidate.is_endorsed:
+        mult = Decimal(str(settings.POLIUM["ENDORSED_MULTIPLIER"]))
+    elif candidate.is_blacklisted:
+        mult = Decimal(str(settings.POLIUM["BLACKLIST_MULTIPLIER"]))
+    else:
+        mult = Decimal("1")
+    pts = (base * mult).quantize(Decimal("1"))
+    return str(pts)
+
+
+def _below_threshold(candidate: Candidate) -> bool:
+    """True when the candidate has survey responses but no criterion yet meets the k-threshold."""
+    from django.utils import timezone
+    ct = ContentType.objects.get_for_model(candidate)
+    cutoff = timezone.now() - timedelta(days=365)
+    has_responses = SurveyResponse.objects.filter(
+        content_type=ct, object_id=candidate.pk, submitted_at__gte=cutoff
+    ).exists()
+    if not has_responses:
+        return False
+    return compute_declaration_points(candidate) == Decimal("0")
+
+
+def _candidates_with_info(candidates: list[Candidate]) -> list[tuple[Candidate, str, bool]]:
+    return [(c, _points_preview(c), _below_threshold(c)) for c in candidates]
+
+
+def _declare_ctx(
+    election: Election,
+    candidates: list[Candidate],
+    declaration: VoteDeclaration | None,
+    points_awarded: str | None = None,
+    error: str = "",
+) -> dict[str, object]:
+    return {
+        "election": election,
+        "candidates_with_preview": _candidates_with_info(candidates),
+        "declaration": declaration,
+        "points_awarded": points_awarded,
+        "error": error,
+    }
+
+
 def election_detail(request: HttpRequest, sqid: str) -> HttpResponse:
-    return HttpResponse("TODO")
+    election = get_object_or_404(Election, sqid=sqid)
+    candidates = list(
+        election.candidates.select_related("jurisdiction").order_by("is_blacklisted", "-current_rating")
+    )
+    declaration: VoteDeclaration | None = None
+    if request.user.is_authenticated:
+        declaration = (
+            VoteDeclaration.objects.filter(player=request.user, election=election)
+            .select_related("candidate")
+            .first()
+        )
+    today = date.today()
+    return render(request, "polium/election_detail.html", {
+        "election": election,
+        "candidates_with_preview": _candidates_with_info(candidates),
+        "declaration": declaration,
+        "today": today,
+    })
+
+
+@login_required
+@require_POST
+def election_declare(request: HttpRequest, sqid: str) -> DatastarResponse:
+    election = get_object_or_404(Election, sqid=sqid)
+    signals = read_signals(request) or {}
+    candidate_sqid = str(signals.get("candidate_sqid", "")).strip()
+
+    candidates = list(
+        election.candidates.select_related("jurisdiction").order_by("is_blacklisted", "-current_rating")
+    )
+
+    if not candidate_sqid:
+        declaration = (
+            VoteDeclaration.objects.filter(player=request.user, election=election)
+            .select_related("candidate")
+            .first()
+        )
+        html = render_to_string(
+            "polium/partials/election_declare_section.html",
+            _declare_ctx(election, candidates, declaration, error="Please select a candidate."),
+            request=request,
+        )
+        return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#election-declare-section"))
+
+    candidate = Candidate.objects.filter(sqid=candidate_sqid, election=election).first()
+    if candidate is None:
+        declaration = (
+            VoteDeclaration.objects.filter(player=request.user, election=election)
+            .select_related("candidate")
+            .first()
+        )
+        html = render_to_string(
+            "polium/partials/election_declare_section.html",
+            _declare_ctx(election, candidates, declaration, error="Invalid candidate selection."),
+            request=request,
+        )
+        return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#election-declare-section"))
+
+    points_awarded: Decimal = service.declare_vote(request.user, candidate, election)
+
+    declaration = (
+        VoteDeclaration.objects.filter(player=request.user, election=election)
+        .select_related("candidate")
+        .first()
+    )
+    awarded_str = str(points_awarded.quantize(Decimal("1"))) if points_awarded > 0 else None
+
+    html = render_to_string(
+        "polium/partials/election_declare_section.html",
+        _declare_ctx(election, candidates, declaration, points_awarded=awarded_str),
+        request=request,
+    )
+    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#election-declare-section"))
 
 
 def jurisdiction_detail(request: HttpRequest, sqid: str) -> HttpResponse:
@@ -439,6 +688,11 @@ def add_election(request: HttpRequest, sqid: str) -> DatastarResponse:
         except ValueError:
             error = "Invalid date. Use YYYY-MM-DD format."
 
+    if not error and Election.objects.filter(
+        jurisdiction=jurisdiction, name=name, election_date=election_date
+    ).exists():
+        error = "An election with this name and date already exists in this jurisdiction."
+
     if error:
         html = render_to_string(
             "polium/partials/elections_section.html",
@@ -512,6 +766,11 @@ def add_candidate(request: HttpRequest, sqid: str) -> DatastarResponse:
                 error = "Selected election does not belong to this jurisdiction."
         except ValueError:
             error = "Invalid election."
+
+    if not error and Candidate.objects.filter(
+        jurisdiction=jurisdiction, name=name, office=office
+    ).exists():
+        error = "A candidate with this name and office already exists in this jurisdiction."
 
     if error:
         html = render_to_string(
@@ -614,9 +873,54 @@ def jurisdiction_search_flag(request: HttpRequest) -> DatastarResponse:
     return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#flag-results"))
 
 
-def submit_survey(request: HttpRequest, sqid: str) -> HttpResponse:
-    return HttpResponse("TODO")
+def privacy(request: HttpRequest) -> HttpResponse:
+    return render(request, "polium/privacy.html")
 
 
-def declare_vote(request: HttpRequest, sqid: str) -> HttpResponse:
-    return HttpResponse("TODO")
+@login_required
+@require_POST
+def submit_survey(request: HttpRequest, sqid: str) -> DatastarResponse:
+    from surveys.service import submit_survey as svc_submit
+
+    candidate = get_object_or_404(Candidate, sqid=sqid)
+
+    answers: dict[int, bool] = {}
+    for key, value in request.POST.items():
+        if key.startswith("criterion_"):
+            try:
+                cid = int(key[len("criterion_"):])
+                answers[cid] = value == "yes"
+            except ValueError:
+                pass
+
+    def _render(extra: dict[str, object]) -> DatastarResponse:
+        ctx = {"candidate": candidate, **_survey_ctx(request, candidate), **extra}
+        html = render_to_string(
+            "polium/partials/survey_section.html", ctx, request=request
+        )
+        return DatastarResponse(
+            ServerSentEventGenerator.patch_elements(html, selector="#survey-section")
+        )
+
+    if not answers:
+        return _render({"error": "Please answer at least one question before submitting."})
+
+    try:
+        _, points_awarded = svc_submit(request.user, candidate, answers)
+    except CoolDownError:
+        return _render({})
+
+    enqueue("update-candidate-rating", {"candidate_id": candidate.pk})
+    candidate.refresh_from_db()
+
+    ctx = {"candidate": candidate, **_survey_ctx(request, candidate)}
+    ctx["survey_state"] = "submitted"
+    ctx["points_awarded"] = points_awarded
+    html = render_to_string(
+        "polium/partials/survey_section.html", ctx, request=request
+    )
+    return DatastarResponse(
+        ServerSentEventGenerator.patch_elements(html, selector="#survey-section")
+    )
+
+

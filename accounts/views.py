@@ -1,10 +1,13 @@
 import json
+from decimal import Decimal
 
 from django.conf import settings
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
+from django.db.models import Sum
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from sesame.views import LoginView as SesameLoginView
@@ -144,11 +147,145 @@ def verify_email(request: HttpRequest, token: str) -> HttpResponse:
 
 
 def player_profile(request: HttpRequest, sqid: str) -> HttpResponse:
-    player = get_object_or_404(Player, sqid=sqid)
-    return render(request, "accounts/profile.html", {
-        "profile_player": player,
-        "is_own_profile": request.user.is_authenticated and request.user.pk == player.pk,
+    from django.contrib.contenttypes.models import ContentType
+    from points.models import PointTransaction
+    from polium.models import Candidate, VoteDeclaration
+    from surveys.models import SurveyResponse
+
+    profile_player = get_object_or_404(Player, sqid=sqid)
+    is_own_profile = request.user.is_authenticated and request.user.pk == profile_player.pk
+
+    ctx: dict[str, object] = {
+        "profile_player": profile_player,
+        "is_own_profile": is_own_profile,
+    }
+
+    if not is_own_profile:
+        return render(request, "accounts/profile.html", ctx)
+
+    candidate_ct = ContentType.objects.get_for_model(Candidate)
+    survey_response_ct = ContentType.objects.get_for_model(SurveyResponse)
+    vote_declaration_ct = ContentType.objects.get_for_model(VoteDeclaration)
+
+    # Candidate surveys
+    survey_responses = list(
+        SurveyResponse.objects
+        .filter(player=profile_player, content_type=candidate_ct)
+        .order_by("-submitted_at")
+    )
+    sr_ids = [sr.pk for sr in survey_responses]
+    candidate_ids = [sr.object_id for sr in survey_responses]
+
+    candidates_by_id: dict[int, Candidate] = {
+        c.pk: c
+        for c in Candidate.objects.filter(pk__in=candidate_ids).only("pk", "name", "office", "sqid")
+    }
+    sr_points: dict[int, Decimal] = {
+        row["object_id"]: row["total"]
+        for row in PointTransaction.objects.filter(
+            player=profile_player,
+            content_type=survey_response_ct,
+            object_id__in=sr_ids,
+        ).values("object_id").annotate(total=Sum("amount"))
+    }
+
+    survey_rows: list[dict[str, object]] = []
+    for sr in survey_responses:
+        candidate = candidates_by_id.get(sr.object_id)
+        if candidate is None:
+            continue
+        survey_rows.append({
+            "candidate": candidate,
+            "submitted_at": sr.submitted_at,
+            "submit_count": sr.submit_count,
+            "points_total": sr_points.get(sr.pk),
+        })
+
+    # Vote declarations
+    declarations = list(
+        VoteDeclaration.objects
+        .filter(player=profile_player)
+        .select_related("candidate", "election")
+        .order_by("-declared_at")
+    )
+    decl_ids = [d.pk for d in declarations]
+    decl_points: dict[int, Decimal] = {
+        pt.object_id: pt.amount
+        for pt in PointTransaction.objects.filter(
+            player=profile_player,
+            content_type=vote_declaration_ct,
+            object_id__in=decl_ids,
+        )
+    }
+    declaration_rows: list[dict[str, object]] = [
+        {"declaration": d, "points": decl_points.get(d.pk)}
+        for d in declarations
+    ]
+
+    # Points history — last 50, with source URL resolved
+    transactions = list(
+        PointTransaction.objects
+        .filter(player=profile_player)
+        .order_by("-created_at")[:50]
+    )
+
+    sr_tx_ids = [
+        t.object_id for t in transactions
+        if t.content_type_id == survey_response_ct.pk and t.object_id is not None
+    ]
+    sr_to_candidate_sqid: dict[int, str] = {}
+    if sr_tx_ids:
+        srs = list(SurveyResponse.objects.filter(pk__in=sr_tx_ids, content_type=candidate_ct))
+        cand_sqids = {
+            c.pk: c.sqid
+            for c in Candidate.objects.filter(
+                pk__in=[s.object_id for s in srs]
+            ).only("pk", "sqid")
+        }
+        for sr in srs:
+            sqid_val = cand_sqids.get(sr.object_id)
+            if sqid_val:
+                sr_to_candidate_sqid[sr.pk] = sqid_val
+
+    decl_tx_ids = [
+        t.object_id for t in transactions
+        if t.content_type_id == vote_declaration_ct.pk and t.object_id is not None
+    ]
+    decl_to_election_sqid: dict[int, str] = {}
+    if decl_tx_ids:
+        for d in VoteDeclaration.objects.filter(pk__in=decl_tx_ids).select_related("election"):
+            if d.election:
+                decl_to_election_sqid[d.pk] = d.election.sqid
+
+    reason_labels: dict[str, str] = {
+        "survey": "Candidate survey",
+        "vote_declaration": "Vote declaration",
+    }
+
+    tx_rows: list[dict[str, object]] = []
+    for t in transactions:
+        source_url: str | None = None
+        if t.content_type_id == survey_response_ct.pk and t.object_id is not None:
+            cand_sqid_val = sr_to_candidate_sqid.get(t.object_id)
+            if cand_sqid_val:
+                source_url = reverse("polium:candidate_detail", args=[cand_sqid_val])
+        elif t.content_type_id == vote_declaration_ct.pk and t.object_id is not None:
+            election_sqid_val = decl_to_election_sqid.get(t.object_id)
+            if election_sqid_val:
+                source_url = reverse("polium:election_detail", args=[election_sqid_val])
+        tx_rows.append({
+            "label": reason_labels.get(t.reason, t.reason),
+            "amount": t.amount,
+            "created_at": t.created_at,
+            "source_url": source_url,
+        })
+
+    ctx.update({
+        "survey_rows": survey_rows,
+        "declaration_rows": declaration_rows,
+        "tx_rows": tx_rows,
     })
+    return render(request, "accounts/profile.html", ctx)
 
 
 @csrf_exempt

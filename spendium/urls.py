@@ -6,4 +6,5 @@ app_name = "spendium"
 
 urlpatterns = [
     path("notify/", views.notify, name="notify"),
+    path("privacy/", views.privacy, name="privacy"),
 ]

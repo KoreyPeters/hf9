@@ -1,0 +1,59 @@
+<div id="candidate-election-section"
+     data-signals='{"candidate_election_id": ""}'>
+
+  {% if show_form %}
+  <div style="display:flex;flex-direction:column;gap:.75rem">
+    {% if error %}
+    <p style="color:#b91c1c;font-size:.8rem;margin:0">{{ error }}</p>
+    {% endif %}
+    <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+      <label style="font-size:.8rem;color:#6b7280;white-space:nowrap">Election</label>
+      {% if elections_for_form %}
+      <select data-bind:candidate_election_id
+              style="padding:.4rem .6rem;border:1px solid #d1d5db;border-radius:4px;font-size:.875rem;flex:1;min-width:0">
+        <option value="">— none —</option>
+        {% for election in elections_for_form %}
+        <option value="{{ election.pk }}"
+          {% if candidate.election_id == election.pk %}selected{% endif %}>
+          {{ election.name }} ({{ election.election_date }})
+        </option>
+        {% endfor %}
+      </select>
+      {% else %}
+      <span style="font-size:.875rem;color:#9ca3af">No elections in this jurisdiction yet.</span>
+      {% endif %}
+    </div>
+    <div style="display:flex;gap:.5rem">
+      <button data-on:click="@post('{% url 'polium:candidate_link_election' candidate.sqid %}')"
+              data-indicator:_election_saving
+              data-attr:disabled="$_election_saving"
+              style="padding:.4rem 1rem;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:.875rem">
+        Save
+      </button>
+      <button data-on:click="@get('{% url 'polium:candidate_election_section' candidate.sqid %}')"
+              style="padding:.4rem .9rem;border:1px solid #e5e7eb;border-radius:4px;background:#fff;cursor:pointer;font-size:.875rem;color:#374151">
+        Cancel
+      </button>
+    </div>
+  </div>
+
+  {% else %}
+  <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+    <span style="font-size:.875rem;color:#374151">
+      <span style="color:#6b7280;font-size:.8rem">Election:</span>
+      {% if candidate.election %}
+        {{ candidate.election.name }} ({{ candidate.election.election_date }})
+      {% else %}
+        <span style="color:#9ca3af">None</span>
+      {% endif %}
+    </span>
+    {% if user.is_authenticated and candidate.jurisdiction %}
+    <button data-on:click="@get('{% url 'polium:candidate_link_election_form' candidate.sqid %}')"
+            style="font-size:.8rem;color:#1d4ed8;background:none;border:none;cursor:pointer;padding:0">
+      {% if candidate.election %}Change{% else %}Link to election{% endif %}
+    </button>
+    {% endif %}
+  </div>
+  {% endif %}
+
+</div>

@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block title %}Spendium Privacy Policy — Human Flourishing{% endblock %}
+{% block content %}
+<main style="max-width:720px;margin:4rem auto;padding:0 1.5rem 6rem;font-family:system-ui,sans-serif;color:#1a1a1a;line-height:1.75">
+
+  <h1 style="font-family:Georgia,serif;font-weight:normal;font-size:2rem;margin:0 0 .5rem">Spendium — Privacy Policy</h1>
+  <p style="font-size:.875rem;color:#6b7280;margin:0 0 2.5rem">Effective date: [DATE] &middot; Version 1.0</p>
+
+  <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:1.25rem 1.5rem;margin-bottom:3rem">
+    <p style="font-weight:600;margin:0 0 .75rem;color:#166534">Before the legal detail, here is what this policy means in practice:</p>
+    <ul style="margin:0;padding-left:1.25rem;color:#166534;display:flex;flex-direction:column;gap:.4rem">
+      <li>We collect purchase data &mdash; stores, amounts, and the individual products on your receipt &mdash; to verify ethical purchasing activity, award points, and build product-level ethical ratings. Nothing else.</li>
+      <li>We do not sell your data. We do not share it with the stores you shop at. Retailers never learn who scanned their QR code.</li>
+      <li>Receipt photos are processed to extract purchase metadata and then deleted. We do not retain images of your financial documents.</li>
+      <li>We do not connect to your bank account. Spendium has no access to your financial institution.</li>
+      <li>Purchase history can reveal sensitive things about you. We treat it accordingly &mdash; it is never used for profiling, advertising, or sharing with third parties.</li>
+      <li>You can delete your purchase history independently of your account, at any time.</li>
+    </ul>
+  </div>
+
+  <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.25rem;margin:0 0 .75rem;color:#111">1. Who We Are</h2>
+  <p style="margin:0 0 .75rem">Spendium is an ethical purchasing game operated by Human Flourishing (&ldquo;HF&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;). It allows players to log purchases at physical stores, survey those stores against ethical criteria, contribute to community-generated ratings, and earn points for doing so. HF&rsquo;s mission is to improve real-world outcomes by rewarding ethical behaviour &mdash; for everyone, forever.</p>
+  <p style="margin:0 0 .75rem">Spendium is a game about physical commerce. Online-only purchases are outside the scope of the game&rsquo;s core mission and are treated differently to in-store purchases, as described in Section 3.</p>
+  <p style="margin:0 0 2.5rem">For privacy enquiries, contact us at: privacy@[domain]</p>
+
+  <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.25rem;margin:0 0 .75rem;color:#111">2. What We Collect and Why</h2>
+
+  <h3 style="font-size:1rem;font-weight:600;margin:0 0 .5rem;color:#374151">2.1 Account Data</h3>
+  <p style="margin:0 0 .75rem">When you create an account we collect:</p>
+  <ul style="margin:0 0 .75rem;padding-left:1.25rem;display:flex;flex-direction:column;gap:.35rem">
+    <li><strong>Email address</strong> &mdash; used for login, security notices, survey delivery, and optional communications.</li>
+    <li><strong>Username</strong> &mdash; your public display name within the game. It does not have to be your real name.</li>
+    <li><strong>Password</strong> (hashed; we never store the plaintext).</li>
+    <li><strong>Membership tier</strong> &mdash; whether you are a free or paid member.</li>
+    <li><strong>Date of account creation.</strong></li>
+  </ul>
+  <p style="margin:0 0 2rem"><strong>We do not require your real name, phone number, date of birth, or any government identifier to use Spendium.</strong></p>
+
+  <h3 style="font-size:1rem;font-weight:600;margin:0 0 .5rem;color:#374151">2.2 Purchase Data</h3>
+  <p style="margin:0 0 .75rem">When you log a purchase, we collect:</p>
+  <ul style="margin:0 0 2rem;padding-left:1.25rem;display:flex;flex-direction:column;gap:.35rem">
+    <li><strong>Store identifier</strong> &mdash; the store where the purchase was made, either from a QR code scan, a receipt, or your self-report.</li>
+    <li><strong>Purchase amount</strong> &mdash; self-reported by you, or extracted from a receipt photo.</li>
+    <li><strong>Purchase date and time</strong> &mdash; to establish the timing of your activity and award time-based bonuses.</li>
+    <li><strong>Logging method</strong> &mdash; whether the purchase was logged via QR scan, receipt photo, or trust-based self-report. This determines the points multiplier applied.</li>
+    <li><strong>Itemised product data</strong> &mdash; when you provide a receipt photo, we extract the individual line items: product names, quantities, and prices. This data is used to award per-product points and to contribute to product-level ethical ratings within the game.</li>
+  </ul>
+
+  <h3 style="font-size:1rem;font-weight:600;margin:0 0 .5rem;color:#374151">2.3 Receipt Photos</h3>
+  <p style="margin:0 0 .75rem">If you choose to photograph your receipt to verify a purchase:</p>
+  <ul style="margin:0 0 2rem;padding-left:1.25rem;display:flex;flex-direction:column;gap:.35rem">
+    <li>The image is processed to extract the store name, date, total amount, and individual line items (product names, quantities, and prices).</li>
+    <li><strong>The image is deleted within 24 hours of processing.</strong> We do not retain receipt photos.</li>
+    <li>Extracted data (store, date, amount, and itemised products) is retained as purchase data per Section 2.2.</li>
+    <li>Receipt processing may be performed by a third-party OCR service. Where this is the case, the image is transmitted securely and the service is contractually prohibited from retaining or using it for any other purpose.</li>
+  </ul>
+
+  <h3 style="font-size:1rem;font-weight:600;margin:0 0 .5rem;color:#374151">2.4 QR Code Scan Data</h3>
+  <p style="margin:0 0 .75rem">When you scan a store&rsquo;s HF QR code:</p>
+  <ul style="margin:0 0 2rem;padding-left:1.25rem;display:flex;flex-direction:column;gap:.35rem">
+    <li>The store ID encoded in the QR code is recorded.</li>
+    <li>The time and date of the scan is recorded.</li>
+    <li><strong>No data is transmitted to the store.</strong> The store does not learn that you scanned their code, who you are, or any information about your account.</li>
+  </ul>
+
+  <h3 style="font-size:1rem;font-weight:600;margin:0 0 .5rem;color:#374151">2.5 Gameplay Data</h3>
+  <ul style="margin:0 0 2rem;padding-left:1.25rem;display:flex;flex-direction:column;gap:.35rem">
+    <li><strong>Survey responses</strong> &mdash; your yes/no answers to HF criteria questions about stores. Stored linked to your account ID for deduplication and points purposes, but aggregated before public display. Your individual answers are never attributed to you by name.</li>
+    <li><strong>Evidence submissions</strong> &mdash; links, documents, or references you submit to support store ratings. Publicly visible and attributed to your username.</li>
+    <li><strong>Usefulness votes and flags</strong> &mdash; your votes on evidence submitted by others, and flags you raise. Stored for integrity purposes; not displayed individually.</li>
+    <li><strong>Points balance and transaction history</strong> &mdash; a ledger of how you earned points within the game.</li>
+  </ul>
+
+  <h3 style="font-size:1rem;font-weight:600;margin:0 0 .5rem;color:#374151">2.6 Location Data</h3>
+  <p style="margin:0 0 .75rem">Spendium does not require or request your GPS location. We do not track where you are.</p>
+  <p style="margin:0 0 2rem">If you choose to search for nearby stores within the app, your approximate location is used to return results. It is not logged, stored, or associated with your account.</p>
+
+  <h3 style="font-size:1rem;font-weight:600;margin:0 0 .5rem;color:#374151">2.7 Technical Data</h3>
+  <ul style="margin:0 0 2rem;padding-left:1.25rem;display:flex;flex-direction:column;gap:.35rem">
+    <li><strong>IP address</strong> &mdash; collected at login for security purposes (rate limiting, fraud detection). Not used for tracking or advertising.</li>
+    <li><strong>Device and browser type</strong> &mdash; collected for compatibility and debugging.</li>
+    <li><strong>Session data</strong> &mdash; a session token stored in a secure cookie to keep you logged in.</li>
+    <li><strong>Usage logs</strong> &mdash; pages visited, actions taken, and timestamps. Used in aggregate to improve the platform. Not sold or shared.</li>
+  </ul>
+
+  <h3 style="font-size:1rem;font-weight:600;margin:0 0 .5rem;color:#374151">2.8 What We Do Not Collect</h3>
+  <ul style="margin:0 0 2.5rem;padding-left:1.25rem;display:flex;flex-direction:column;gap:.35rem">
+    <li>Bank account details, credit or debit card numbers, or any data from your financial institution.</li>
+    <li>Race, ethnicity, religion, gender, or sexual orientation.</li>
+    <li>Precise geolocation or movement history.</li>
+    <li>Data about your purchases outside Spendium.</li>
+  </ul>
+
+  <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.25rem;margin:0 0 .75rem;color:#111">3. How We Use Your Data</h2>
+  <p style="margin:0 0 .75rem">We use the data we collect exclusively to:</p>
+  <ul style="margin:0 0 .75rem;padding-left:1.25rem;display:flex;flex-direction:column;gap:.35rem">
+    <li><strong>Operate the game</strong> &mdash; verify purchase activity, calculate store and product ratings, award points, and surface relevant local stores.</li>
+    <li><strong>Build product-level ethical ratings</strong> &mdash; itemised purchase data is aggregated and anonymised to generate ratings for individual products and brands. These ratings are published publicly and are intended to create accountability for manufacturers and retailers. No individual player&rsquo;s purchasing choices are ever attributed or identifiable in published ratings.</li>
+    <li><strong>Deliver surveys</strong> &mdash; send post-purchase survey emails so you can rate the store you just visited.</li>
+    <li><strong>Prevent abuse</strong> &mdash; detect duplicate purchase logs, manipulated amounts, and fraudulent point claims.</li>
+    <li><strong>Communicate with you</strong> &mdash; send account security emails and, if you opt in, product updates.</li>
+    <li><strong>Improve the platform</strong> &mdash; analyse anonymised usage patterns to fix bugs and improve features.</li>
+    <li><strong>Comply with legal obligations</strong> &mdash; where applicable law requires us to retain or disclose data.</li>
+  </ul>
+  <p style="margin:0 0 2.5rem"><strong>We do not use your data for advertising, behavioural profiling, or any purpose not listed above.</strong></p>
+
+  <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.25rem;margin:0 0 .75rem;color:#111">4. Purchase Data &mdash; Heightened Protections</h2>
+  <div style="background:#fefce8;border:1px solid #fde68a;border-radius:6px;padding:1.25rem 1.5rem;margin-bottom:2.5rem">
+    <p style="margin:0 0 .75rem;color:#713f12">Purchase history is sensitive. A record of where someone shops &mdash; and what they buy &mdash; can reveal religious beliefs, health conditions, political affiliations, dietary choices, and financial circumstances. Itemised product data amplifies this sensitivity considerably. We apply a higher standard of protection to purchase and product data than to other gameplay data:</p>
+    <ul style="margin:0;padding-left:1.25rem;color:#713f12;display:flex;flex-direction:column;gap:.4rem">
+      <li>Purchase data is <strong>never sold</strong> to any party, under any circumstances.</li>
+      <li>Purchase data is <strong>never shared</strong> with the stores featured in Spendium, with advertisers, or with data brokers.</li>
+      <li>Purchase data is <strong>never used</strong> to build a profile of you for any purpose other than operating the game.</li>
+      <li>Aggregate statistics derived from purchase and product data are published without any individual attribution.</li>
+      <li>You can <strong>delete your purchase history at any time</strong> &mdash; independently of deleting your account &mdash; via account settings. Deleted purchases are removed from your record; aggregate store ratings derived from them are not retroactively altered.</li>
+    </ul>
+  </div>
+
+  <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.25rem;margin:0 0 .75rem;color:#111">5. Store Data and Third Parties</h2>
+  <h3 style="font-size:1rem;font-weight:600;margin:0 0 .5rem;color:#374151">5.1 Store Profiles</h3>
+  <p style="margin:0 0 1.25rem">Spendium holds data about stores and brands. This includes store names, locations, categories, and community ratings. Much of this information is publicly available. Community ratings are aggregate expressions of player opinion, clearly presented as such.</p>
+  <p style="margin:0 0 1.25rem">Stores that participate in Spendium by displaying a QR code do not receive player data in return. Participation gives a store a public HF rating and visibility within the app &mdash; nothing more.</p>
+  <h3 style="font-size:1rem;font-weight:600;margin:0 0 .5rem;color:#374151">5.2 Third-Party Integrations</h3>
+  <p style="margin:0 0 2.5rem">If Spendium integrates with point-of-sale systems (e.g. Square, Shopify) in future stages, we will update this policy to describe the data exchanged. Any such integration will be limited to verifying transaction amounts for points purposes and will not give those services access to your Spendium account or profile.</p>
+
+  <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.25rem;margin:0 0 .75rem;color:#111">6. Sharing and Disclosure</h2>
+  <p style="margin:0 0 .75rem">We do not sell your personal data. We share it only in the following limited circumstances:</p>
+  <ul style="margin:0 0 2.5rem;padding-left:1.25rem;display:flex;flex-direction:column;gap:.35rem">
+    <li><strong>Service providers</strong> &mdash; we use third-party services to host the platform, process receipts, send emails, and monitor for security threats. These providers process data on our behalf under strict data processing agreements and are not permitted to use your data for their own purposes.</li>
+    <li><strong>Legal obligations</strong> &mdash; we may disclose data if required by a court order, subpoena, or applicable law. We will notify you if we receive such a request unless prohibited by law from doing so.</li>
+    <li><strong>Business transfers</strong> &mdash; if HF merges with or is acquired by another organisation, your data may transfer as part of that transaction. We will notify you in advance and you will have the opportunity to delete your account.</li>
+    <li><strong>With your consent</strong> &mdash; we will not share your data for any other purpose without asking you first.</li>
+  </ul>
+
+  <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.25rem;margin:0 0 .75rem;color:#111">7. Data Retention</h2>
+  <ul style="margin:0 0 2.5rem;padding-left:1.25rem;display:flex;flex-direction:column;gap:.35rem">
+    <li><strong>Account data</strong> &mdash; retained for as long as your account is active, plus 30 days after deletion to allow for recovery requests.</li>
+    <li><strong>Purchase records</strong> &mdash; retained while your account is active. You can delete your purchase history at any time via account settings. All purchase records are deleted when you delete your account.</li>
+    <li><strong>Receipt photos</strong> &mdash; deleted within 24 hours of processing, regardless of account status.</li>
+    <li><strong>Survey responses</strong> &mdash; retained indefinitely in aggregate form. Individual responses are deleted when you delete your account.</li>
+    <li><strong>Technical logs</strong> &mdash; retained for 90 days, then automatically purged.</li>
+    <li><strong>Evidence submissions</strong> &mdash; retained after account deletion in anonymised form (your username is replaced with &ldquo;[deleted]&rdquo;).</li>
+  </ul>
+
+  <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.25rem;margin:0 0 .75rem;color:#111">8. Your Rights</h2>
+  <p style="margin:0 0 .75rem">You have the following rights regarding your personal data. To exercise any of them, contact us at privacy@[domain].</p>
+  <ul style="margin:0 0 .75rem;padding-left:1.25rem;display:flex;flex-direction:column;gap:.35rem">
+    <li><strong>Access</strong> &mdash; you can request a copy of the personal data we hold about you, including your full purchase history.</li>
+    <li><strong>Correction</strong> &mdash; you can correct inaccurate account data at any time via account settings.</li>
+    <li><strong>Deletion of purchase history</strong> &mdash; you can delete your purchase history independently of your account at any time via account settings.</li>
+    <li><strong>Full account deletion</strong> &mdash; you can delete your account and all associated personal data at any time. Some anonymised data may be retained as described in Section 7.</li>
+    <li><strong>Portability</strong> &mdash; you can request an export of your personal data, including purchase records, in a machine-readable format.</li>
+    <li><strong>Objection</strong> &mdash; you can object to any use of your data beyond what is necessary to operate the game.</li>
+    <li><strong>Withdrawal of consent</strong> &mdash; where we rely on consent (e.g. optional communications), you can withdraw it at any time.</li>
+  </ul>
+  <p style="margin:0 0 2.5rem">We will respond to rights requests within 30 days. If you are unhappy with our response, you may lodge a complaint with the relevant data protection authority in your jurisdiction.</p>
+
+  <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.25rem;margin:0 0 .75rem;color:#111">9. Security</h2>
+  <ul style="margin:0 0 .75rem;padding-left:1.25rem;display:flex;flex-direction:column;gap:.35rem">
+    <li>Passwords are hashed using a modern, slow hashing algorithm (bcrypt or equivalent). We never store plaintext passwords.</li>
+    <li>Data is encrypted in transit using TLS 1.2 or higher.</li>
+    <li>Purchase data and receipt images are encrypted at rest.</li>
+    <li>Receipt images are stored in an isolated environment with access restricted to the processing pipeline only. No human employee can access your receipt images during normal operations.</li>
+    <li>Access to production data is restricted to authorised personnel only and is logged.</li>
+    <li>We conduct regular security reviews and act on findings promptly.</li>
+  </ul>
+  <p style="margin:0 0 2.5rem">In the event of a data breach that affects your personal data &mdash; and in particular any breach involving purchase or receipt data &mdash; we will notify you within 72 hours of becoming aware of it, consistent with applicable law.</p>
+
+  <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.25rem;margin:0 0 .75rem;color:#111">10. Cookies and Tracking</h2>
+  <p style="margin:0 0 .75rem">We use the minimum cookies necessary to operate the service:</p>
+  <ul style="margin:0 0 .75rem;padding-left:1.25rem;display:flex;flex-direction:column;gap:.35rem">
+    <li><strong>Session cookie</strong> &mdash; keeps you logged in during a browser session. Expires when you close your browser or log out.</li>
+    <li><strong>Persistent login cookie</strong> &mdash; if you choose &ldquo;remember me&rdquo;, a secure token is stored for up to 30 days.</li>
+    <li><strong>CSRF token</strong> &mdash; a security cookie that prevents cross-site request forgery attacks.</li>
+  </ul>
+  <p style="margin:0 0 2.5rem">We do not use advertising cookies, third-party tracking cookies, or analytics cookies that send data to external parties. We do not participate in cross-site tracking.</p>
+
+  <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.25rem;margin:0 0 .75rem;color:#111">11. Minors</h2>
+  <p style="margin:0 0 2.5rem">Spendium is not intended for use by anyone under the age of 16. We do not knowingly collect personal data from minors. Given the financial nature of purchase data, we take particular care to ensure minors are not using the service. If we become aware that a minor has created an account, we will delete the data and the account immediately. If you believe a minor has created an account, please contact us at privacy@[domain].</p>
+
+  <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.25rem;margin:0 0 .75rem;color:#111">12. Changes to This Policy</h2>
+  <p style="margin:0 0 2.5rem">We will post any changes to this policy on this page with an updated effective date. For material changes &mdash; particularly any changes to how purchase data or receipt images are handled &mdash; we will notify you by email at least 14 days before the change takes effect. Continued use of Spendium after the effective date constitutes acceptance of the updated policy.</p>
+
+  <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.25rem;margin:0 0 .75rem;color:#111">13. Contact Us</h2>
+  <p style="margin:0 0 .5rem">For any privacy-related questions or to exercise your rights:</p>
+  <ul style="margin:0 0 .75rem;padding-left:1.25rem;display:flex;flex-direction:column;gap:.35rem">
+    <li><strong>Email:</strong> privacy@[domain]</li>
+    <li><strong>Post:</strong> Human Flourishing, [Address]</li>
+  </ul>
+  <p style="margin:0;font-style:italic;color:#6b7280">We aim to respond to all enquiries within 5 business days.</p>
+
+</main>
+{% endblock %}
