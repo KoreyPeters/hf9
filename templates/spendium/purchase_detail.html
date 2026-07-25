@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Receipt — Spendium{% endblock %}
+{% block content %}
+<main style="max-width:800px;margin:0 auto;padding:2rem 1.5rem;font-family:system-ui,sans-serif">
+
+  {# Header #}
+  <div style="margin-bottom:2rem">
+    <h1 style="font-family:Georgia,serif;font-weight:normal;margin:0">
+      {% if purchase.store %}{{ purchase.store.name }}{% else %}Receipt{% endif %}
+    </h1>
+    <p style="color:#6b7280;margin:.25rem 0 0">
+      {{ purchase.purchased_at|date:"j F Y" }} &middot; {{ purchase.total }}
+    </p>
+    {% if purchase.window_is_open %}
+    <p style="font-size:.8rem;color:#6b7280;margin:.5rem 0 0">
+      You can rate and correct these until {{ purchase.anonymise_after|date:"j F Y" }},
+      after which this receipt stops being linked to you.
+    </p>
+    {% else %}
+    <p style="font-size:.8rem;color:#9ca3af;margin:.5rem 0 0">
+      This receipt is no longer linked to your account.
+    </p>
+    {% endif %}
+  </div>
+
+  {# Prompts. Short by design — see the partial. #}
+  <div style="margin-bottom:2rem">
+    {% include "spendium/partials/disambiguation_section.html" %}
+  </div>
+
+  {# Everything on the receipt, whether or not it needed checking. #}
+  <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.1rem;margin:0 0 .75rem">
+    On this receipt
+  </h2>
+  <table style="width:100%;border-collapse:collapse;font-size:.875rem">
+    <tbody>
+      {% for line in line_items %}
+      <tr style="border-top:1px solid #f3f4f6">
+        <td style="padding:.6rem 0;vertical-align:top">
+          {% if line.product %}
+          <span style="color:#111">{{ line.product.canonical_name }}</span>
+          {% else %}
+          <span style="color:#9ca3af">{{ line.interpreted_name|default:line.raw_text }}</span>
+          {% endif %}
+          <div style="font-size:.75rem;color:#9ca3af;margin-top:.15rem">
+            <code>{{ line.raw_text }}</code>
+          </div>
+        </td>
+        <td style="padding:.6rem 0;text-align:right;vertical-align:top;white-space:nowrap;color:#374151">
+          {{ line.line_total }}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td style="padding:.6rem 0;color:#9ca3af">No line items were read from this receipt.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+</main>
+{% endblock %}

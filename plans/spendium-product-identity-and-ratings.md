@@ -88,6 +88,13 @@ compound rather than merely accumulate**, and in-prompt matching cannot provide 
 Consequences for the Gemini call: no per-request catalogue context block, and `catalogue_id` /
 `match_type` come out of the response schema. It becomes pure extraction.
 
+### 4b. Receipt capture is a published commitment, not just a feature
+
+Added after Phase 6, when it became clear the plan had no way for a player to
+create a receipt or see one. The privacy policy already promises both — visible
+purchase history, deletion "via account settings", and export on request — so
+these views are obligations rather than conveniences. See Phase 6b.
+
 ### 4. Build order — identity layer first
 
 `spendium/models.py` currently contains one model, `SpendiumWaitlist`. There is no Store,
@@ -489,6 +496,43 @@ starting value.
 - [ ] Suppress candidates below the noise floor
 - [ ] Tests for budget enforcement and ranking order
 
+### Phase 6b — Receipt capture and history
+
+Nothing in the original plan let a player create a receipt or see one. The
+service layer can record a receipt and the purchase page can show one, but the
+only caller is a test, and a purchase is reachable only by typing its URL.
+
+This is also a compliance gap, not just a UX one. The published privacy policy
+commits four times over to a player being able to see and delete their purchase
+history "via account settings" (`templates/spendium/privacy.html`, lines 17,
+115, 138, 150) and to receiving a copy of it on request (line 148). None of that
+is possible without these views.
+
+`record_receipt()` currently runs extraction inline, so it makes one or two
+model calls before returning. That cannot sit in a request cycle: a slow receipt
+would hold the connection open for seconds and time out. Processing moves behind
+the task system, which means the purchase needs a processing state and the page
+needs to reflect it.
+
+- [ ] Add a processing state to `Purchase` (pending / processed / failed) with
+  the extraction problems recorded against it
+- [ ] Move `record_receipt()` behind a task; the view stores the image, hashes
+  it, creates the pending purchase and enqueues the work
+- [ ] Upload view: image only, size and content-type validated before storage
+- [ ] Reject a re-upload whose perceptual hash matches a recent purchase by the
+  same player, rather than paying to extract the same receipt twice
+- [ ] Purchase page shows processing state, and the extraction problems when a
+  receipt could not be read reliably
+- [ ] Purchase list — the player's receipts, newest first, with store, date,
+  total, and how many line items are still unresolved
+- [ ] Delete a single purchase, and delete all purchase history, per the
+  published policy. Deleting removes the player-linked rows; anonymous rows
+  already written stay, which is what the policy describes
+- [ ] Export purchase history, to satisfy the access commitment
+- [ ] Gate receipt scanning to members
+- [ ] Tests: upload validation, duplicate rejection, async processing states,
+  deletion removes the player-linked record and leaves the anonymous one
+
 ### Phase 7 — Alias integrity
 
 - [ ] Confirmation flow: provisional → authoritative on second independent confirmation
@@ -529,11 +573,12 @@ starting value.
 
 - [ ] Instrument alias hit rate, tier distribution, prompt and completion rates
 - [ ] Instrument new-record, auto-merge, and demotion rates
-- [ ] Perceptual-hash dedup at submission
 - [ ] Submission velocity check
 - [ ] High-value receipt hold
 - [ ] Negative line item suppression
-- [ ] Gate receipt scanning to members
+
+(Perceptual-hash deduplication and the members-only gate move to Phase 6b, where
+the upload path they guard is built.)
 
 ### Phase 12 — Documentation
 

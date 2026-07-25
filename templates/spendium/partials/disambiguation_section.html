@@ -1,0 +1,106 @@
+{% comment %}
+Prompts are budgeted and ordered by how much resolving each is worth to
+everyone, so this list is deliberately short even when many line items are
+unresolved. Ignoring a prompt is free — every product stays rateable whether or
+not it has been disambiguated.
+{% endcomment %}
+<div id="disambiguation-section"
+     data-signals='{"free_text": "", "chosen_product_id": ""}'>
+
+  {% if error %}
+  <p style="color:#b91c1c;font-size:.8rem;margin:0 0 .75rem">{{ error }}</p>
+  {% endif %}
+
+  {% if prompts %}
+  <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.1rem;margin:0 0 .25rem">
+    Can you check these?
+  </h2>
+  <p style="font-size:.8rem;color:#6b7280;margin:0 0 1rem">
+    Only if you have a moment — everything on this receipt can be rated either way.
+  </p>
+
+  <div style="display:flex;flex-direction:column;gap:1rem">
+    {% for prompt in prompts %}
+    <div style="border:1px solid #e5e7eb;border-radius:6px;padding:.9rem">
+
+      <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+        <code style="font-size:.8rem;color:#374151">{{ prompt.line.raw_text }}</code>
+        {% if prompt.blocked_elsewhere > 1 %}
+        <span style="font-size:.7rem;color:#9ca3af;white-space:nowrap"
+              title="Confirming this resolves it for everyone who bought the same thing">
+          on {{ prompt.blocked_elsewhere }} receipts
+        </span>
+        {% endif %}
+      </div>
+
+      {% if prompt.has_match %}
+      {# Weak match: we have a best guess and want it checked, not replaced. #}
+      <p style="font-size:.9rem;color:#111;margin:.5rem 0 .75rem">
+        We matched this to <strong>{{ prompt.line.product.canonical_name }}</strong>.
+        Does that look right?
+      </p>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <button data-on:click="@post('{% url 'spendium:confirm_line' prompt.line.pk %}')"
+                data-indicator:_saving
+                data-attr:disabled="$_saving"
+                style="padding:.4rem 1rem;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:.875rem">
+          Yes, that's it
+        </button>
+      </div>
+      {% else %}
+      {# No match: nothing in the catalogue cleared the bar. #}
+      <p style="font-size:.9rem;color:#111;margin:.5rem 0 .75rem">
+        We couldn't place this one.
+        {% if prompt.line.interpreted_name %}
+        We read it as <em>{{ prompt.line.interpreted_name }}</em>.
+        {% endif %}
+      </p>
+      {% endif %}
+
+      {% if prompt.candidates %}
+      <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.6rem">
+        <select data-bind:chosen_product_id
+                style="padding:.4rem .6rem;border:1px solid #d1d5db;border-radius:4px;font-size:.875rem;flex:1;min-width:0">
+          <option value="">
+            {% if prompt.has_match %}— or pick another —{% else %}— choose a product —{% endif %}
+          </option>
+          {% for candidate in prompt.candidates %}
+          <option value="{{ candidate.product.pk }}">{{ candidate.product.canonical_name }}</option>
+          {% endfor %}
+        </select>
+        <button data-on:click="@post('{% url 'spendium:choose_line_product' prompt.line.pk %}')"
+                data-indicator:_saving
+                data-attr:disabled="$_saving"
+                style="padding:.4rem .9rem;border:1px solid #e5e7eb;border-radius:4px;background:#fff;cursor:pointer;font-size:.875rem;color:#374151">
+          Use this
+        </button>
+      </div>
+      {% endif %}
+
+      {# Free text. The player held the product, so their own words are the
+         strongest signal available — but they still run through the matching
+         cascade rather than writing to the catalogue directly. #}
+      <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
+        <input type="text"
+               data-bind:free_text
+               placeholder="Or describe it yourself"
+               style="padding:.4rem .6rem;border:1px solid #d1d5db;border-radius:4px;font-size:.875rem;flex:1;min-width:0">
+        <button data-on:click="@post('{% url 'spendium:submit_line_free_text' prompt.line.pk %}')"
+                data-indicator:_saving
+                data-attr:disabled="$_saving"
+                style="padding:.4rem .9rem;border:1px solid #e5e7eb;border-radius:4px;background:#fff;cursor:pointer;font-size:.875rem;color:#374151">
+          Save
+        </button>
+      </div>
+
+    </div>
+    {% endfor %}
+  </div>
+
+  {% else %}
+  <p style="font-size:.875rem;color:#6b7280;margin:0">
+    Nothing to check on this receipt.
+  </p>
+  {% endif %}
+
+</div>
