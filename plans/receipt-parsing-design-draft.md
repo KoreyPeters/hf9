@@ -1,5 +1,19 @@
 # Receipt parsing: image to canonical product
 
+> **SUPERSEDED — do not implement from this document.**
+> Replaced by `spendium-product-identity-and-ratings.md`. Retained for the parts that
+> survived: the Gemini call structure, the extraction schema, the post-extraction arithmetic
+> checks, and perceptual-hash image dedup.
+>
+> Specifically reversed by the current plan:
+> - **Routing to Polium** for community resolution — resolution belongs to the purchasing
+>   player, and Spendium product identity does not belong in the voting game.
+> - **In-prompt catalogue matching** — matching is a separate stage over stored `raw_text`,
+>   so it can be re-run as the catalogue grows. The receipt image is deleted at 24 hours,
+>   so a match welded to the image can never be revisited.
+> - **Firestore and BigQuery ML** for abuse detection — the project runs SQLite with
+>   Litestream and has no such dependencies.
+
 ## Overview
 
 When a player photographs a receipt, Spendium needs to do two things that are conceptually distinct: extract the raw text from the image, and interpret that text into canonical product identities that match records in our database. We use Gemini Vision on Vertex AI for both steps in a single call, rather than separating OCR and interpretation. This is the right approach because the interpretation problem — turning "TP-COLG-250" into "Colgate Toothpaste Bright Whitening 250ml" — requires world knowledge that a pure OCR tool cannot provide.
