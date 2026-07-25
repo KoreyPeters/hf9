@@ -36,6 +36,13 @@
    - [Democratic Integrity](#democratic-integrity)
    - [Open Design Questions](#open-design-questions-1)
 10. [Humanium](#humanium)
+    - [Core Mechanic](#core-mechanic)
+    - [Categories and Criteria](#categories-and-criteria)
+    - [Evidence Multipliers](#evidence-multipliers)
+    - [Phase 1 — Solo Check-ins](#phase-1--solo-check-ins)
+    - [Phase 2 — Meeting Groups](#phase-2--meeting-groups)
+    - [Accessibility Feature — Peer Accountability Calls](#accessibility-feature--peer-accountability-calls)
+    - [What Humanium Is Not](#what-humanium-is-not)
 11. [The Ethical Arms Race](#the-ethical-arms-race)
     - [Greenwashing and Ethical Theatre](#greenwashing-and-ethical-theatre)
     - [Regulatory Capture: The Known Risk](#regulatory-capture-the-known-risk)
@@ -813,9 +820,110 @@ At launch, criteria are determined by the founder. This is a temporary arrangeme
 
 ## Humanium
 
-Humanium rewards ethical life choices. It is the third game in the HF suite and shares the same core gameplay loop as Spendium and Polium — surveys shape ratings, ratings drive interest, interest drives action.
+Humanium rewards ethical life choices. It is the third game in the HF suite and shares the same core gameplay loop — surveys shape ratings, ratings drive interest, interest drives action. The subject being assessed is the player's own life rather than an external entity, which makes it the most personal and philosophically rich of the three games.
 
-Humanium is a stretch goal. Design will not begin until Spendium and Polium are well established. A placeholder is maintained here to acknowledge its existence and intent.
+Humanium is a stretch goal. Phase 1 launches only when Spendium and Polium are well established. Phase 2 and the accessibility feature build on a mature player base.
+
+### Core Mechanic
+
+The trigger is a scheduled check-in — periodic, like a scheduled service interval. At their chosen cadence (configurable, suggested default 90 days), a player is prompted to reflect on their life choices across categories they have opted into. They answer yes/no questions mapped to criteria. Points are earned immediately based on the criteria-based formula:
+
+> **check-in points = Σ (criterion value × criterion probability × evidence multiplier)**
+
+The check-in is primarily a self-reflection tool. Most of its value is private. Public signalling is available but always optional.
+
+### Categories and Criteria
+
+Criteria in Humanium describe personal life choices. Example categories:
+
+**Transport** — car-free, small car, electric vehicle, public transit primary user, cycling primary user
+**Diet** — plant-based, low meat consumption, locally sourced, low food waste
+**Energy** — renewable home energy, low consumption
+**Community** — regular volunteering, civic participation, local commerce preference
+**Work** — ethical employer, fair labour practices accepted
+**Consumption** — repair over replace, secondhand purchasing, low waste
+
+Criteria must be applicable across different life circumstances, income levels, and geographies. Criteria that are only achievable by wealthy or urban players are constitutionally suspect under Article 1. The criteria governance process must be especially attentive to this in Humanium.
+
+### Evidence Multipliers
+
+Players can submit evidence to HF privately — bank statements, transit records, utility bills, app data — to earn a points multiplier on their self-declared check-in answers. Evidence is verified by HF but never published. The player earns the multiplier without exposing the underlying document.
+
+Evidence tiers:
+- **Self-declared:** 1x — base criterion value, no evidence required
+- **Community-corroborated:** 1.5x — others who know the player have confirmed the claim through the community evidence mechanic
+- **Privately verified by HF:** 3x — verifiable artefacts submitted to and confirmed by HF
+
+The social broadcast is a separate voluntary act. A player can share their check-in results publicly via the social share mechanic for additional points. The broadcast is the declaration; the evidence stays private.
+
+### Phase 1 — Solo Check-ins
+
+The foundational mechanic. Scheduled prompts, yes/no criteria questions, private self-assessment, optional private evidence submission, optional public social broadcast. No other players involved. Pure reflection.
+
+### Phase 2 — Meeting Groups
+
+Players host or attend regular in-person gatherings at semi-public venues — community centres, places of worship, library meeting rooms, workplace community spaces. The format is modelled on values-based community gatherings that have existed across cultures and traditions for centuries: structured reflection, shared commitment to living well, non-judgment, witness, accountability. The meeting group is Humanium's most direct expression of Article 2 — profound human connections, in person, between people who might never otherwise have met.
+
+**The HF Meeting Format**
+
+HF provides a defined meeting format that hosts commit to following when they register a group. The format is not a rigid script — it defines the structure and the spirit of the gathering while leaving room for authentic human interaction. It covers: how the meeting opens, how check-ins are shared, how the group responds to disclosures, and how the meeting closes. The format is designed to be culturally adaptable — it works across different traditions, backgrounds, and worldviews.
+
+The format evolves through the community governance process, but at any given time there is a canonical version that hosts are expected to follow.
+
+Whether the meeting followed the HF format is one of the primary survey criteria evaluated by attendees after each meeting. A host who consistently runs meetings that diverge significantly from the format will see that reflected in the group's survey rating.
+
+**How it works:**
+
+A player registers a meeting group with HF — venue, host, cadence, approximate size. HF issues a QR code for the group. Attendees scan in at the start of each meeting. HF records attendance and awards points.
+
+**Verification via surveys:**
+
+The meeting group itself becomes a subject that gets surveyed after each meeting. Primary survey criteria:
+- Was the HF meeting format followed?
+- Was this a genuine reflection space?
+- Did the host facilitate well?
+- Was it safe and welcoming?
+
+The crowd verifies the crowd. A meeting group with consistently good survey responses is legitimate and well-functioning. A group with poor responses depreciates naturally through the Community Lifecycle Management mechanism.
+
+**Points for meeting groups:**
+- **Attending** — points per attendance, scaled by the group's survey rating
+- **Hosting** — higher points than attending, reflecting the additional commitment
+- **Hosting a consistently high-rated group** — verified host badge
+
+**Growing a meeting group**
+
+Meeting groups find their own momentum when the conditions are right. A host who registers a group, shares it through local channels, and runs a good first meeting will attract attendees organically. HF supports discovery — registered groups are visible to players in the same jurisdiction — but does not orchestrate growth. The community does that.
+
+### Accessibility Feature — Peer Accountability Calls
+
+For players who cannot attend in-person meeting groups — geographic isolation, disability, schedule constraints — a peer accountability call provides an equivalent experience. This runs alongside meeting groups permanently as an accessibility feature, not as a phase that gets superseded.
+
+A player opts in as a caller, a recipient, or both. Callers are identity-verified by HF before participating. Recipients explicitly opt in knowing a stranger will call. Calls follow a strict structured format consistent with the spirit of the HF meeting format. All calls are recorded with both parties' explicit consent, disclosed at opt-in. Recipients can flag inappropriate behaviour with serious consequences for the caller. The caller does not know who they are calling and will likely never call the same person twice.
+
+Legal compliance around call recording varies by jurisdiction — specialist legal review required before launch.
+
+**Points for accountability calls:**
+- **Caller** — points for completing a structured call
+- **Recipient** — points equivalent to a solo check-in
+- **Both** — social share option following the call
+
+### What Humanium Is Not
+
+Humanium is not a surveillance platform. The tattletale mechanic — where players report on each other's private behaviour — was explicitly considered and rejected. It would poison human relationships, invert the positive incentive philosophy, and create infrastructure for targeted harassment.
+
+Humanium is not a virtue signalling machine. Self-reflection is primary. Public broadcast is secondary and always optional. A player who makes profound changes in their private life and never broadcasts a single one is playing Humanium exactly as intended.
+
+### Open Design Questions
+
+- **The HF meeting format** — the canonical meeting structure needs to be designed before Phase 2 launches; it should be simple, culturally adaptable, and rooted in the constitutional articles
+- **Criteria design** — must be binary, culturally universal, applicable across income levels and geographies; the criteria governance process must be especially attentive to this
+- **Evidence verification at scale** — private evidence review requires a defined process at scale, possibly involving trusted community reviewers
+- **Meeting group safety** — hosts are the primary safety mechanism; HF needs a clear process for handling reports of unsafe group environments
+- **Accountability call legal framework** — call recording consent requirements vary by jurisdiction; specialist legal review required before launch
+- **Check-in cadence design** — whether different criteria categories warrant different cadences or a single configurable cadence is sufficient
+
+---
 
 ---
 
