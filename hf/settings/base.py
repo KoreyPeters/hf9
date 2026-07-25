@@ -176,6 +176,9 @@ SQID_SALTS = {
     "election": config("SQID_SALT_ELECTION"),
     "player": config("SQID_SALT_PLAYER"),
     "jurisdiction": config("SQID_SALT_JURISDICTION"),
+    "manufacturer": config("SQID_SALT_MANUFACTURER"),
+    "product": config("SQID_SALT_PRODUCT"),
+    "store": config("SQID_SALT_STORE"),
 }
 
 LIFECYCLE = {
@@ -188,6 +191,14 @@ LIFECYCLE = {
 POLIUM = {
     "ENDORSED_MULTIPLIER": config("ENDORSED_MULTIPLIER", default=2.0, cast=float),
     "BLACKLIST_MULTIPLIER": config("BLACKLIST_MULTIPLIER", default=0.25, cast=float),
+}
+
+SPENDIUM = {
+    # Independent confirmations required before a product alias is treated as
+    # authoritative and stops prompting. See plans/spendium-product-identity-and-ratings.md.
+    "ALIAS_CONFIRMATIONS_REQUIRED": config(
+        "ALIAS_CONFIRMATIONS_REQUIRED", default=2, cast=int
+    ),
 }
 
 MEMBER_MULTIPLIER: float = config("MEMBER_MULTIPLIER", default=1.5, cast=float)
