@@ -1,5 +1,9 @@
+from datetime import timedelta
+from uuid import uuid4
+
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 from sqids import Sqids
 
 from core.models import SqidMixin
@@ -343,3 +347,179 @@ class ProductAlias(models.Model):
     def __str__(self) -> str:
         scope = self.store.name if self.store else "global"
         return f"{self.raw_text} ({scope}) → {self.product.canonical_name}"
+
+
+class MatchTier(models.TextChoices):
+    """Which tier of the matching cascade resolved a line item."""
+
+    ALIAS = "alias", "Tier 0 — exact alias"
+    FUZZY = "fuzzy", "Tier 1 — fuzzy match"
+    ADJUDICATED = "adjudicated", "Tier 2 — model adjudication"
+    PLAYER = "player", "Tier 3 — player confirmed"
+    UNMATCHED = "unmatched", "Unmatched"
+
+
+class LineItemFields(models.Model):
+    """Fields shared by the player-linked and anonymous copies of a line item.
+
+    Abstract, so both layers stay in step. `raw_text` in particular must survive
+    anonymisation: once the receipt image is deleted it is the only durable
+    record of what was bought, and retro-matching replays it as the catalogue
+    grows.
+    """
+
+    raw_text = models.CharField(max_length=300, help_text="Verbatim, as printed.")
+    raw_text_normalised = models.CharField(max_length=300, db_index=True)
+    interpreted_name = models.CharField(
+        max_length=300, blank=True, help_text="The model's reading of the raw text."
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="%(class)s_items",
+    )
+    match_tier = models.CharField(
+        max_length=20, choices=MatchTier.choices, default=MatchTier.UNMATCHED
+    )
+    match_confidence = models.DecimalField(
+        max_digits=4, decimal_places=3, null=True, blank=True
+    )
+    quantity = models.DecimalField(max_digits=8, decimal_places=3, default=1)
+    unit_price = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    line_total = models.DecimalField(max_digits=10, decimal_places=2)
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        self.raw_text_normalised = normalise_raw_text(self.raw_text)
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return self.raw_text
+
+
+class Purchase(models.Model):
+    """Layer 1 — the player-linked purchase record.
+
+    Exists for `PURCHASE_RETENTION_DAYS` only. At expiry it is copied into the
+    anonymous layer and **deleted**, which is what makes re-identification
+    technically infeasible rather than merely prohibited by policy.
+
+    The player FK is deliberately not nullable. Nulling it in place would leave
+    the basket sitting in a table that other records — the points ledger among
+    them — may reference, so the player could be recovered by joining back. A
+    row that no longer exists cannot be joined to.
+    """
+
+    player = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="purchases"
+    )
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="purchases",
+    )
+    purchased_at = models.DateTimeField(help_text="Transaction time, from the receipt.")
+    subtotal = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    tax = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    total = models.DecimalField(max_digits=10, decimal_places=2)
+    image_phash = models.CharField(
+        max_length=64,
+        blank=True,
+        db_index=True,
+        help_text="Perceptual hash for duplicate detection. Outlives the image "
+        "itself, which is deleted within IMAGE_RETENTION_HOURS.",
+    )
+    image_deleted_at = models.DateTimeField(null=True, blank=True)
+    anonymise_after = models.DateTimeField(
+        db_index=True,
+        help_text="When this record must be anonymised. A sweeper catches any "
+        "purchase whose scheduled task was lost.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["player", "purchased_at"])]
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        if not self.anonymise_after:
+            days: int = settings.SPENDIUM["PURCHASE_RETENTION_DAYS"]
+            self.anonymise_after = timezone.now() + timedelta(days=days)
+        super().save(*args, **kwargs)
+
+    @property
+    def window_is_open(self) -> bool:
+        """Whether the player may still rate and disambiguate this purchase."""
+        return timezone.now() < self.anonymise_after
+
+    def __str__(self) -> str:
+        store = self.store.name if self.store else "unknown store"
+        return f"{store} — {self.purchased_at:%Y-%m-%d} ({self.total})"
+
+
+class PurchaseLineItem(LineItemFields):
+    STATE_NOT_NEEDED = "not_needed"
+    STATE_PENDING = "pending"
+    STATE_RESOLVED = "resolved"
+    STATE_CHOICES = [
+        (STATE_NOT_NEEDED, "No disambiguation needed"),
+        (STATE_PENDING, "Awaiting player confirmation"),
+        (STATE_RESOLVED, "Resolved by player"),
+    ]
+
+    purchase = models.ForeignKey(
+        Purchase, on_delete=models.CASCADE, related_name="line_items"
+    )
+    disambiguation_state = models.CharField(
+        max_length=20, choices=STATE_CHOICES, default=STATE_NOT_NEEDED
+    )
+
+    class Meta:
+        indexes = [models.Index(fields=["disambiguation_state"])]
+
+
+class AnonymisedPurchase(models.Model):
+    """Layer 2 — permanent, anonymous, no path back to a player.
+
+    Written at anonymisation time rather than at processing time. A row created
+    up front could never absorb the corrections a player makes during their
+    window, so the analytical layer would permanently record product identities
+    the player had already fixed.
+
+    `purchase_token` is freshly generated here and has no relationship to the
+    player or to the original row's primary key. Its only job is to hold a
+    basket together for co-purchase analysis.
+    """
+
+    purchase_token = models.UUIDField(default=uuid4, unique=True, editable=False)
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="anonymised_purchases",
+    )
+    purchased_at = models.DateTimeField()
+    total = models.DecimalField(max_digits=10, decimal_places=2)
+    anonymised_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["purchased_at"])]
+
+    def __str__(self) -> str:
+        return f"{self.purchase_token} ({self.purchased_at:%Y-%m-%d})"
+
+
+class AnonymisedLineItem(LineItemFields):
+    anonymised_purchase = models.ForeignKey(
+        AnonymisedPurchase, on_delete=models.CASCADE, related_name="line_items"
+    )

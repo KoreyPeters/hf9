@@ -3,11 +3,15 @@ from django.db.models import QuerySet
 from django.http import HttpRequest
 
 from .models import (
+    AnonymisedLineItem,
+    AnonymisedPurchase,
     Manufacturer,
     Product,
     ProductAlias,
     ProductCategory,
     ProductUpc,
+    Purchase,
+    PurchaseLineItem,
     SpendiumWaitlist,
     Store,
 )
@@ -136,6 +140,78 @@ class ProductUpcAdmin(admin.ModelAdmin):
     list_display = ["upc", "product", "created_at"]
     search_fields = ["upc", "product__canonical_name"]
     autocomplete_fields = ["product"]
+
+
+class PurchaseLineItemInline(admin.TabularInline):
+    model = PurchaseLineItem
+    extra = 0
+    fields = [
+        "raw_text",
+        "interpreted_name",
+        "product",
+        "match_tier",
+        "match_confidence",
+        "line_total",
+        "disambiguation_state",
+    ]
+    autocomplete_fields = ["product"]
+
+
+@admin.register(Purchase)
+class PurchaseAdmin(admin.ModelAdmin):
+    list_display = [
+        "__str__",
+        "player",
+        "store",
+        "purchased_at",
+        "total",
+        "anonymise_after",
+    ]
+    list_filter = ["store", "purchased_at"]
+    search_fields = ["player__username", "store__name"]
+    autocomplete_fields = ["player", "store"]
+    readonly_fields = ["created_at", "image_phash", "image_deleted_at"]
+    inlines = [PurchaseLineItemInline]
+    date_hierarchy = "purchased_at"
+
+
+class AnonymisedLineItemInline(admin.TabularInline):
+    model = AnonymisedLineItem
+    extra = 0
+    can_delete = False
+    readonly_fields = [
+        "raw_text",
+        "interpreted_name",
+        "product",
+        "match_tier",
+        "match_confidence",
+        "quantity",
+        "unit_price",
+        "line_total",
+    ]
+
+    def has_add_permission(self, request: HttpRequest, obj: object = None) -> bool:
+        return False
+
+
+@admin.register(AnonymisedPurchase)
+class AnonymisedPurchaseAdmin(admin.ModelAdmin):
+    """Read-only. There is no player behind these rows and none can be restored."""
+
+    list_display = ["purchase_token", "store", "purchased_at", "total", "anonymised_at"]
+    list_filter = ["store", "purchased_at"]
+    readonly_fields = [
+        "purchase_token",
+        "store",
+        "purchased_at",
+        "total",
+        "anonymised_at",
+    ]
+    inlines = [AnonymisedLineItemInline]
+    date_hierarchy = "purchased_at"
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
 
 
 @admin.register(ProductAlias)

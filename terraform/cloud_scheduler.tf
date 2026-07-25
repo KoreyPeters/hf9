@@ -39,3 +39,29 @@ resource "google_cloud_scheduler_job" "check_deletions" {
     }
   }
 }
+
+# Safety net for purchase anonymisation. Each purchase schedules its own
+# Cloud Task at write time, but a dropped task would leave a player-linked
+# basket alive past its retention window — a privacy failure, not a cosmetic
+# one. This sweep catches any that were missed. The underlying task is
+# idempotent, so overlapping with the per-purchase task is harmless.
+resource "google_cloud_scheduler_job" "sweep_purchase_anonymisation" {
+  name             = "hf-sweep-purchase-anonymisation"
+  project          = var.project
+  region           = var.region
+  schedule         = "0 3 * * *"
+  time_zone        = "UTC"
+  attempt_deadline = "300s"
+
+  depends_on = [google_project_service.apis]
+
+  http_target {
+    uri         = "https://humanflourish.ing/tasks/sweep-purchase-anonymisation/"
+    http_method = "POST"
+
+    oidc_token {
+      service_account_email = google_service_account.tasks.email
+      audience              = "https://humanflourish.ing"
+    }
+  }
+}

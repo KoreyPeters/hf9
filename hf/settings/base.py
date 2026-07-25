@@ -199,6 +199,13 @@ SPENDIUM = {
     "ALIAS_CONFIRMATIONS_REQUIRED": config(
         "ALIAS_CONFIRMATIONS_REQUIRED", default=2, cast=int
     ),
+    # Days a purchase stays player-linked. At expiry the row is copied to the
+    # anonymous layer and deleted. This is also the window in which a player may
+    # rate and disambiguate their purchases.
+    "PURCHASE_RETENTION_DAYS": config("PURCHASE_RETENTION_DAYS", default=30, cast=int),
+    # Receipt images are a published commitment: deleted within 24 hours of
+    # processing, regardless of account status. See templates/spendium/privacy.html.
+    "IMAGE_RETENTION_HOURS": config("IMAGE_RETENTION_HOURS", default=24, cast=int),
 }
 
 MEMBER_MULTIPLIER: float = config("MEMBER_MULTIPLIER", default=1.5, cast=float)
