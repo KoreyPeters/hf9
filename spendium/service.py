@@ -13,10 +13,13 @@ from django.utils import timezone
 from core.tasks import enqueue
 from points.models import PointTransaction
 
-from . import extraction, imaging, matching
+from . import adjudication, extraction, imaging, matching
 from .models import (
     AnonymisedLineItem,
     AnonymisedPurchase,
+    MatchConfig,
+    MatchTier,
+    ProductAlias,
     Purchase,
     PurchaseLineItem,
     Store,
@@ -99,6 +102,8 @@ def record_receipt(
     for line in purchase.line_items.all():
         line.save(update_fields=["raw_text_normalised"])
 
+    _adjudicate_residuals(purchase, results, client=client)
+
     enqueue("delete-receipt-image", {"purchase_id": purchase.pk})
     enqueue(
         "anonymise-purchase",
@@ -106,6 +111,102 @@ def record_receipt(
         schedule_time=purchase.anonymise_after,
     )
     return purchase
+
+
+def _adjudicate_residuals(
+    purchase: Purchase,
+    results: list[matching.MatchResult],
+    client: Any | None = None,
+) -> int:
+    """Send what Tiers 0 and 1 missed to the model, with their near-misses.
+
+    Only items with no product *and* at least one plausible candidate are worth
+    asking about. An item with an empty candidate list has nothing to choose
+    from, so a call would either return "none of these" or invent an answer.
+
+    A confident decision writes a provisional alias, which is what makes the
+    resolution durable: the next receipt carrying that string hits Tier 0 and
+    never reaches the model at all.
+    """
+    config = MatchConfig.get()
+    top_k = config.adjudication_candidates
+    if not top_k:
+        return 0
+
+    lines = list(purchase.line_items.order_by("pk"))
+    items = []
+    for index, (line, result) in enumerate(zip(lines, results, strict=True)):
+        if result.product is not None or not result.candidates:
+            continue
+        items.append(
+            adjudication.AdjudicationItem(
+                index=index,
+                raw_text=line.raw_text,
+                interpreted_name=line.interpreted_name,
+                candidates=[
+                    (candidate.product.pk, candidate.product.canonical_name)
+                    for candidate in result.candidates[:top_k]
+                ],
+            )
+        )
+
+    if not items:
+        return 0
+
+    decisions = adjudication.adjudicate(items, client=client)
+
+    resolved = 0
+    for index, decision in decisions.items():
+        if not decision.resolved:
+            continue
+        line = lines[index]
+        line.product_id = decision.product_id
+        line.match_tier = MatchTier.ADJUDICATED
+        # No confidence score: the model did not produce one, and inventing a
+        # number here would be indistinguishable downstream from a measured
+        # fuzzy score.
+        line.match_confidence = None
+        # Still prompted. A model decision is a strong signal, not a confirming
+        # witness, and the shopper is the only party who held the product.
+        line.disambiguation_state = PurchaseLineItem.STATE_PENDING
+        line.save(
+            update_fields=[
+                "product",
+                "match_tier",
+                "match_confidence",
+                "disambiguation_state",
+            ]
+        )
+        _record_provisional_alias(line, decision.product_id, purchase.store)
+        resolved += 1
+
+    return resolved
+
+
+def _record_provisional_alias(
+    line: PurchaseLineItem, product_id: int, store: Store | None
+) -> None:
+    """Remember an adjudicated string so the next receipt resolves it for free.
+
+    Provisional, never authoritative — promotion still needs two independent
+    player confirmations. Sourced as adjudication so its later accuracy can be
+    measured against what players decided.
+
+    A string already claimed at this retailer is left alone. Uniqueness is
+    global per (store, string), so overwriting would silently reassign every
+    other receipt carrying it.
+    """
+    if not line.raw_text_normalised:
+        return
+    ProductAlias.objects.get_or_create(
+        store=store,
+        raw_text_normalised=line.raw_text_normalised,
+        defaults={
+            "product_id": product_id,
+            "raw_text": line.raw_text,
+            "source": ProductAlias.SOURCE_ADJUDICATION,
+        },
+    )
 
 
 def negative_line_total_ids(purchase: Purchase) -> list[int]:

@@ -378,6 +378,11 @@ class MatchConfig(models.Model):
         help_text="How many candidates FTS5 narrowing hands to scoring. Caps "
         "matching cost so it does not grow with the catalogue.",
     )
+    adjudication_candidates = models.PositiveIntegerField(
+        default=5,
+        help_text="Candidates offered per item in the Tier 2 adjudication call. "
+        "Set to 0 to disable adjudication entirely.",
+    )
     prompt_budget = models.PositiveIntegerField(
         default=5,
         help_text="Maximum disambiguation prompts shown per receipt. Players "

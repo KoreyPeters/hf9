@@ -37,7 +37,7 @@ class FakeModels:
     def generate_content(
         self, *, model: str, contents: list, config: object
     ) -> FakeResponse:
-        self.calls.append({"model": model, "config": config})
+        self.calls.append({"model": model, "config": config, "contents": contents})
         payload = (
             self._payloads.pop(0) if len(self._payloads) > 1 else self._payloads[0]
         )
