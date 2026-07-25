@@ -136,15 +136,41 @@ a long, low tail. Admin escalation is near zero by construction, because players
 
 ### Tier 1 — Fuzzy match on interpreted name and alias pool
 
-For items with no exact alias hit. Normalised-token and trigram similarity (`rapidfuzz`)
-against canonical names and the accumulated alias pool, producing a score that maps to
-strong / weak / no-match bands we own and tune.
+For items with no exact alias hit. Split into two stages, because scoring the whole catalogue
+per line item does not scale: with a seeded catalogue of ~200k products and ~30 line items per
+receipt, naive scoring is ~6M string comparisons per receipt, growing linearly with the
+catalogue forever.
+
+**Stage A — narrow (FTS5).** An FTS5 virtual table over canonical names and the alias pool.
+Query with the interpreted name, take the top ~200 by BM25 rank. Indexed, C-speed, and BM25
+supplies IDF weighting for free — "colgate" dominates the ranking while "toothpaste" and "ml"
+contribute almost nothing. FTS5 is compiled into the bundled SQLite (verified: 3.50.4), so this
+adds no dependency. The virtual table tracks `Product` via an external-content table with
+triggers; Litestream replicates it normally.
+
+**Stage B — score (rapidfuzz).** Score the ~200-candidate shortlist to produce final confidence
+and the strong / weak / noise bands. ~6k comparisons per receipt rather than ~6M, and the cost
+is bounded by shortlist size rather than catalogue size, so it stays flat as the catalogue grows.
+
+The division of labour matters: FTS5 decides which records are *plausible*, rapidfuzz decides
+*how good* the match is. Confidence remains ours to tune, which is the whole point of
+separate-stage matching.
+
+Supporting optimisations: batch all line items of a receipt so `rapidfuzz.process.cdist`
+vectorises scoring; pre-filter by brand token against `Manufacturer`, since Gemini emits
+`[Brand] [Product Name] [Variant]` and the leading token is usually the brand.
+
+Note this cost profile *decreases* over time. At cold start the catalogue is seeded-large and
+the alias pool is empty, so everything falls to Tier 1. As aliases accumulate, Tier 0 absorbs
+the majority and Tier 1 volume drops. This is a launch-window problem and it is self-limiting.
+Latency budget is generous regardless — receipt processing is a background task, not a request
+cycle.
 
 **We are not adding a vector database.** Both source documents assume vector search and cosine
-thresholds; the project has SQLite, no embedding library, no FTS, and `icontains` search
-(`polium/views.py:126`). Tier 0 carries the load, and fuzzy matching will go a long way on the
-residual before embeddings are justified. Defer embeddings until metrics show fuzzy matching is
-the binding constraint.
+thresholds; the project has SQLite and `icontains` search (`polium/views.py:126`). Tier 0 carries
+the load and FTS5 + rapidfuzz covers the residual. Defer embeddings until metrics show fuzzy
+matching is the binding constraint. If FTS5 were ever unavailable, the fallback is a
+`ProductToken` table with document-frequency weighting — the same blocking strategy, hand-rolled.
 
 ### Tier 2 — Targeted Gemini adjudication (the second call)
 
@@ -250,11 +276,33 @@ anything public-facing, business logic in models and service modules, thin views
 - `ProductCategory` — taxonomy for products (distinct from `surveys.Category`, which scopes
   survey criteria)
 - `Product` — `canonical_name`, `status` (verified/unverified/retired), `merged_into` (FK self),
-  `upc`, `manufacturer` FK, `category` FK, `confidence_source`
-  (gemini/upc_lookup/admin/player), `reformulated_at` (nullable, deferred), sqid
+  `manufacturer` FK, `category` FK, `confidence_source` (gemini/upc_lookup/admin/player),
+  `reformulated_at` (nullable, deferred), sqid
+- `ProductUpc` — `product` FK, `upc`. One-to-many: UPCs are SKU-level, so a product line with
+  five sizes carries five UPCs. A singular field on `Product` breaks the moment UPC data is
+  imported.
 - `ProductAlias` — `product` FK, `store` FK (nullable for global aliases), `raw_text_normalised`
   (indexed), `source`, `status` (provisional/authoritative/demoted), `confirmation_count`,
   `created_at`. Unique on `(store, raw_text_normalised)`.
+
+**Granularity — product line, not SKU.** `Product` is the product line and is the rating
+subject. `canonical_name` follows `[Brand] [Product Name] [Variant]` and **excludes size** —
+the superseded draft's format embedded `[Size]`, which is incompatible with collapsing size
+variants into one record.
+
+The reasoning: HF criteria measure ethical properties (labour, sourcing, environmental impact),
+and a 250ml and 100ml tube of the same toothpaste are ethically identical. Rating at SKU level
+would ask the same question repeatedly and split responses across records, so each variant takes
+several times as long to clear the display threshold — fewer products publicly rated, for fewer
+players. Collapsing concentrates responses and gets products rated sooner. It also removes an
+entire class of disambiguation: the system never asks "250ml or 100ml?", and `TP-COLG-250` and
+`TP-COLG-100` become two aliases converging on one record.
+
+`[Variant]` is retained — Bright Whitening vs Cavity Protection is a real distinction that
+manufacturers name distinctly, and is exactly where the naming-pressure mechanism applies.
+Size is packaging, not identity. Observed size stays on `PurchaseLineItem` (implicit in
+`raw_text` and `unit_price`) and remains available to Layer 2 basket analytics. No
+`ProductVariant` model for MVP.
 
 **Purchase**
 - `Store` — brand-level per the existing Stage 1 audit, sqid, lifecycle
@@ -312,22 +360,54 @@ Receipt scanning remains members-only, per the draft.
 
 ---
 
+## Resolved decisions
+
+**Granularity** — product line, size excluded from canonical name, `upc` becomes one-to-many.
+See the data model section above.
+
+**Cold-start seeding** — seed the catalogue, scoped. Import Open Food Facts filtered to
+products available in Canada, grocery/pharmacy/household categories only, as `unverified` with
+`confidence_source=upc_lookup`. Do **not** seed the alias table.
+
+Seeding does nothing for Tier 0 — open databases supply product names and UPCs, never
+`TP-COLG-250`. Its value is elsewhere: against an empty catalogue *every* first purchase
+produces no match at all, which means maximum new-record creation, maximum duplicate
+fragmentation, and the largest possible admin merge queue. Seeding converts "no match, create a
+record" into "weak match, confirm this" — a better prompt and, more importantly, fragmentation
+avoided. Crowd-sourced name inconsistency is acceptable; the alias mechanism is what resolves it.
+
+**Two k-thresholds** — both exist, measuring different things:
+- *Rating display* — reuse `SurveyConfig.min_survey_threshold` (default 5, admin-editable,
+  `surveys/ratings.py:68`). Same mechanism and semantics as Polium; no new concept.
+- *k-anonymity on published aggregates* — 10 purchases, higher for sensitive categories
+  (health, personal care). A privacy guarantee, not a statistical-meaningfulness one, so it
+  stays separate.
+
+**Points for rating** — a bonus on top of purchase points, **never a prerequisite**. Gating
+purchase points on rating would withhold points the player has already earned, and it
+interacts badly with the prompt budget: we would be gating rewards on an action we deliberately
+rate-limit.
+
+**Unverified ratings** — allowed, weighted lower, and **never sufficient alone** to clear the
+display threshold. Receipt-anchored ratings are what make the data defensible when manufacturers
+dispute it; excluding unverified ratings entirely would cut off non-player contribution and a
+growth path.
+
+---
+
 ## Open questions
 
-- **Prompt budget** — is 3–5 per receipt right? Needs calibration against real completion rates.
-- **Tier 0/1 thresholds** — the strong/weak/noise-floor bands need a labelled test set built
-  from real receipts before they can be set meaningfully.
-- **Product line vs SKU granularity** — §1 specifies product-line level with size variants
-  collapsing, but the canonical name format includes size and receipts carry it. Decide whether
-  size is part of identity; it changes alias pooling and match thresholds.
-- **Two k-thresholds, not one** — the architecture doc sets k-anonymity at "minimum 10
-  purchases" before publishing; the product plan leaves minimum *responses* open. Different
-  units, both needed: one gates the anonymity guarantee, the other gates rating display.
-- **Cold start per retailer** — first player at a new chain faces a wall of prompts, front-loaded
-  onto early adopters. Seed from open product databases (Open Food Facts, UPC Item DB) before
-  launch? The prompt budget caps the damage but does not remove it.
-- **Points for rating** — bonus on top of purchase points, or tied to them?
-- **Unverified rating weighting** — are ratings without a receipt anchor allowed at all?
+Both remaining questions are calibration, not design. Neither can be answered before real data
+exists, and neither should be a constant in code — follow the existing
+`SurveyConfig.min_survey_threshold` pattern and make them admin-editable config so they can be
+tuned against live behaviour without a deploy. The open question then reduces to picking a
+starting value.
+
+- **Prompt budget** — starting value 3–5 per receipt. Calibrate against prompt *completion*
+  rate, not prompt count.
+- **Tier 0/1 thresholds** — the strong / weak / noise-floor bands need a labelled fixture set
+  built from real receipt strings before they mean anything. Build the fixture set in Phase 3;
+  treat the initial bands as placeholders.
 
 ---
 
@@ -335,13 +415,23 @@ Receipt scanning remains members-only, per the draft.
 
 ### Phase 1 — Product identity layer
 
-- [ ] Create `Manufacturer`, `ProductCategory`, `Product`, `ProductAlias` models in `spendium`
+- [ ] Create `Manufacturer`, `ProductCategory`, `Product`, `ProductUpc`, `ProductAlias` models
+- [ ] `Product.canonical_name` excludes size; document the format on the model
 - [ ] Add `SqidMixin` to `Product` and register salts in `settings.SQID_SALTS`
 - [ ] Unique constraint on `ProductAlias(store, raw_text_normalised)`; index the raw column
 - [ ] Write `normalise_raw_text()` — case, whitespace, punctuation, common receipt noise
 - [ ] Migrations
-- [ ] Django admin for all four models, including the merge action
+- [ ] Django admin for all five models, including the merge action
 - [ ] Model-level tests for alias status transitions and `merged_into` resolution
+
+### Phase 1b — Catalogue seeding
+
+- [ ] Management command importing Open Food Facts, filtered to Canada-available products in
+  grocery/pharmacy/household categories
+- [ ] Import as `status=unverified`, `confidence_source=upc_lookup`; populate `ProductUpc`
+- [ ] Strip size tokens from imported names to match the canonical format
+- [ ] Do not write alias rows
+- [ ] Idempotent re-run; report counts created/updated/skipped
 
 ### Phase 2 — Store and purchase models
 
@@ -358,8 +448,15 @@ Receipt scanning remains members-only, per the draft.
 - [ ] `spendium/matching.py` — `match_line_item(raw_text, interpreted_name, store)`
 - [ ] Tier 0: exact alias lookup, retailer-scoped then global
 - [ ] Add `rapidfuzz` dependency
-- [ ] Tier 1: fuzzy score against canonical names and alias pool; strong/weak/noise bands
+- [ ] FTS5 virtual table over canonical names and alias pool, external-content with triggers
+- [ ] Tier 1 Stage A: BM25 narrowing to ~200 candidates
+- [ ] Tier 1 Stage B: rapidfuzz scoring of the shortlist; strong/weak/noise bands
+- [ ] Batch line items per receipt so `rapidfuzz.process.cdist` vectorises
+- [ ] Brand-token pre-filter against `Manufacturer`
+- [ ] Move thresholds and prompt budget into admin-editable config, per
+  `SurveyConfig.min_survey_threshold`
 - [ ] Build a labelled fixture set of real receipt strings for threshold tuning
+- [ ] Verify FTS5 index survives a Litestream restore
 - [ ] Tests running entirely offline, no API calls
 
 ### Phase 4 — Gemini extraction
@@ -415,8 +512,12 @@ Receipt scanning remains members-only, per the draft.
 - [ ] Founder-set opening criteria, flagged temporary in the UI
 - [ ] Criteria versioning so responses under different question sets stay distinguishable
 - [ ] Product rating display, response count, trend
-- [ ] Minimum response threshold before public display
+- [ ] Gate display on `SurveyConfig.min_survey_threshold`; separate k=10 gate on published
+  aggregates, higher for sensitive categories
 - [ ] Ratings keep product reference only — no receipt FK
+- [ ] Award rating points as a bonus — never gate purchase points on rating
+- [ ] Weight unverified (non-receipt-anchored) ratings lower; never let them alone clear the
+  display threshold
 
 ### Phase 10 — Action Centre
 
