@@ -484,6 +484,13 @@ class Purchase(models.Model):
     )
     tax = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     total = models.DecimalField(max_digits=10, decimal_places=2)
+    receipt_image = models.FileField(
+        upload_to="receipts/%Y/%m/",
+        null=True,
+        blank=True,
+        help_text="Transient. Deleted within IMAGE_RETENTION_HOURS of "
+        "processing, per the published privacy policy.",
+    )
     image_phash = models.CharField(
         max_length=64,
         blank=True,

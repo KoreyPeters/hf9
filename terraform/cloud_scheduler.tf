@@ -65,3 +65,28 @@ resource "google_cloud_scheduler_job" "sweep_purchase_anonymisation" {
     }
   }
 }
+
+# Backstop for receipt image deletion. Images are deleted as soon as extraction
+# finishes, so this should normally find nothing. Hourly rather than daily
+# because the published commitment is a hard 24 hours: a daily sweep that ran
+# just before a deletion was missed could leave an image alive for nearly 48.
+resource "google_cloud_scheduler_job" "sweep_receipt_images" {
+  name             = "hf-sweep-receipt-images"
+  project          = var.project
+  region           = var.region
+  schedule         = "15 * * * *"
+  time_zone        = "UTC"
+  attempt_deadline = "300s"
+
+  depends_on = [google_project_service.apis]
+
+  http_target {
+    uri         = "https://humanflourish.ing/tasks/sweep-receipt-images/"
+    http_method = "POST"
+
+    oidc_token {
+      service_account_email = google_service_account.tasks.email
+      audience              = "https://humanflourish.ing"
+    }
+  }
+}

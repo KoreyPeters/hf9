@@ -226,3 +226,5 @@ terraform/.terraform/
 terraform/.terraform.lock.hcl
 terraform/terraform.tfstate
 terraform/terraform.tfstate.backup
+# Uploaded media (receipt images are transient — deleted within 24h)
+media/

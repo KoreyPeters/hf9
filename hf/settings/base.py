@@ -103,10 +103,19 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
 }
+
+# Uploaded files. In production `default` storage is GCS (see prod.py); locally
+# this keeps receipt images out of the working tree root. Nothing here is
+# long-lived — receipt images are deleted within 24 hours of processing.
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.Player"
@@ -206,6 +215,19 @@ SPENDIUM = {
     # Receipt images are a published commitment: deleted within 24 hours of
     # processing, regardless of account status. See templates/spendium/privacy.html.
     "IMAGE_RETENTION_HOURS": config("IMAGE_RETENTION_HOURS", default=24, cast=int),
+    # Receipt extraction. Vertex AI is reached through the Gen AI SDK; the old
+    # vertexai.generative_models path is retired.
+    "GEMINI_MODEL": config("GEMINI_MODEL", default="gemini-2.5-flash"),
+    "GEMINI_LOCATION": config("GEMINI_LOCATION", default="us-central1"),
+    # Extraction is not a creative task — the model should be decisive about
+    # what is printed on the receipt rather than exploratory.
+    "GEMINI_TEMPERATURE": config("GEMINI_TEMPERATURE", default=0.1, cast=float),
+    # Money read off a receipt should reconcile to the cent; the tolerance
+    # absorbs rounding on weight-priced lines, not genuine misreads.
+    "ARITHMETIC_TOLERANCE": config("ARITHMETIC_TOLERANCE", default="0.05"),
+    # A receipt older than the retention window can never be rated, so there is
+    # no point accepting one.
+    "MAX_RECEIPT_AGE_DAYS": config("MAX_RECEIPT_AGE_DAYS", default=30, cast=int),
 }
 
 MEMBER_MULTIPLIER: float = config("MEMBER_MULTIPLIER", default=1.5, cast=float)
