@@ -64,12 +64,12 @@ Both are pre-existing bugs. The survey section partial will display the rating c
 
 ## Todo Steps
 
-- [ ] Update `candidate_detail()` to compute and pass survey state context
-- [ ] Create `templates/polium/partials/survey_section.html` with all 4 states
-- [ ] Add `<div id="survey-section">` to `candidate_profile.html`
-- [ ] Implement `submit_survey()` view in `polium/views.py`
-- [ ] Add view-level tests to `polium/tests.py`
-- [ ] Run the test suite to confirm nothing is broken
+- [x] Update `candidate_detail()` to compute and pass survey state context
+- [x] Create `templates/polium/partials/survey_section.html` with all 4 states
+- [x] Add `<div id="survey-section">` to `candidate_profile.html`
+- [x] Implement `submit_survey()` view in `polium/views.py`
+- [x] Add view-level tests to `polium/tests.py`
+- [x] Run the test suite to confirm nothing is broken
 
 ---
 

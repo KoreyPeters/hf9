@@ -45,12 +45,12 @@ No migrations. No views. No URL changes.
 
 ## Todo Steps
 
-- [ ] Create `static/css/nav.css` with all navbar styles (desktop + mobile breakpoint at 640px)
-- [ ] Update `templates/base.html`:
+- [x] Create `static/css/nav.css` with all navbar styles (desktop + mobile breakpoint at 640px)
+- [x] Update `templates/base.html`:
   - Add `{% load static %}` at the top
   - Add `<link rel="stylesheet" href="{% static 'css/nav.css' %}">` in `<head>`
   - Insert `<nav class="site-nav">` block between `<body>` and the email verification banner
-- [ ] Verify the navbar renders correctly by running the dev server and checking:
+- [x] Verify the navbar renders correctly by running the dev server and checking:
   - Desktop: wordmark left, links centre/right, user section far right
   - Mobile (≤640px): wordmark left, hamburger right, menu expands on tap
   - Authenticated state: display_label + points + profile link + sign out

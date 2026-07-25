@@ -70,13 +70,13 @@ Spendium's policy is fully drafted (`local_only/Spendium-Privacy-Policy.md`). Bo
 
 ## Todo Steps
 
-- [ ] Add `privacy` view and URL to `polium/views.py` and `polium/urls.py`
-- [ ] Create `templates/polium/privacy.html` from `local_only/Polium-Privacy-Policy.md`
-- [ ] Add `privacy` view and URL to `spendium/views.py` and `spendium/urls.py`
-- [ ] Create `templates/spendium/privacy.html` (placeholder)
-- [ ] Remove About link from `templates/base.html` navbar
-- [ ] Add footer to `templates/base.html`
-- [ ] Add consent line to `templates/accounts/signup.html`
+- [x] Add `privacy` view and URL to `polium/views.py` and `polium/urls.py`
+- [x] Create `templates/polium/privacy.html` from `local_only/Polium-Privacy-Policy.md`
+- [x] Add `privacy` view and URL to `spendium/views.py` and `spendium/urls.py`
+- [x] Create `templates/spendium/privacy.html` (placeholder)
+- [x] Remove About link from `templates/base.html` navbar
+- [x] Add footer to `templates/base.html`
+- [x] Add consent line to `templates/accounts/signup.html`
 
 ---
 

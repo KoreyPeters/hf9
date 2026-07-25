@@ -224,14 +224,14 @@ The seed command uses `get_or_create`, so it won't update existing rows. A `migr
 
 ## Todo steps
 
-- [ ] Add `min_survey_threshold` to `SurveyConfig`; generate and run migration
-- [ ] Add `tier` to `Membership`; generate and run migration
-- [ ] Add `MEMBER_MULTIPLIER` and `SUSTAINING_MEMBER_MULTIPLIER` to `hf/settings/base.py`; remove `VOTE_DECLARATION_BASE`
-- [ ] Add `_membership_multiplier()` helper and update `award_points()` to apply it and return `Decimal`
-- [ ] Add `compute_declaration_points()` to `surveys/ratings.py`
-- [ ] Update `surveys/service.py` `submit_survey()` to return `tuple[SurveyResponse, Decimal]`
-- [ ] Update `polium/service.py` `declare_vote()` to use `compute_declaration_points()`
-- [ ] Update `polium/views.py`: `_points_preview()` and survey submit view for new return type
-- [ ] Update seed criteria weights and add a data migration (or update script) for existing rows
-- [ ] Update all affected tests
-- [ ] Run full test suite
+- [x] Add `min_survey_threshold` to `SurveyConfig`; generate and run migration
+- [x] Add `tier` to `Membership`; generate and run migration
+- [x] Add `MEMBER_MULTIPLIER` and `SUSTAINING_MEMBER_MULTIPLIER` to `hf/settings/base.py`; remove `VOTE_DECLARATION_BASE`
+- [x] Add `_membership_multiplier()` helper and update `award_points()` to apply it and return `Decimal`
+- [x] Add `compute_declaration_points()` to `surveys/ratings.py`
+- [x] Update `surveys/service.py` `submit_survey()` to return `tuple[SurveyResponse, Decimal]`
+- [x] Update `polium/service.py` `declare_vote()` to use `compute_declaration_points()`
+- [x] Update `polium/views.py`: `_points_preview()` and survey submit view for new return type
+- [x] Update seed criteria weights and add a data migration (or update script) for existing rows
+- [x] Update all affected tests
+- [x] Run full test suite

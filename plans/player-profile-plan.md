@@ -95,12 +95,12 @@ No new URLs. No new models. No migrations.
 
 ## Todo steps
 
-- [ ] Update `player_profile()` view to fetch survey responses, vote declarations, and point transactions for own-profile view
-- [ ] Rebuild `templates/accounts/profile.html`:
+- [x] Update `player_profile()` view to fetch survey responses, vote declarations, and point transactions for own-profile view
+- [x] Rebuild `templates/accounts/profile.html`:
   - Header (avatar, name, member since, points)
   - Polium section: surveys table + vote declarations table (own only)
   - Points history table (own only, 50 most recent)
-- [ ] Run tests
+- [x] Run tests
 
 ---
 
