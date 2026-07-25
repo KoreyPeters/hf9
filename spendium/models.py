@@ -349,6 +349,58 @@ class ProductAlias(models.Model):
         return f"{self.raw_text} ({scope}) → {self.product.canonical_name}"
 
 
+class MatchConfig(models.Model):
+    """Tunable matching thresholds, admin-editable.
+
+    These are calibration, not design. None of them can be set meaningfully
+    before real receipts exist, so they must be adjustable without a deploy —
+    same reasoning as `SurveyConfig.min_survey_threshold`. The defaults are
+    placeholders to be tuned against the labelled fixture set.
+    """
+
+    strong_match_score = models.PositiveIntegerField(
+        default=90,
+        help_text="At or above this score (0-100) a match is accepted silently, "
+        "with no prompt.",
+    )
+    weak_match_score = models.PositiveIntegerField(
+        default=72,
+        help_text="At or above this, the best candidate is used but the player "
+        "is offered a chance to correct it.",
+    )
+    noise_floor_score = models.PositiveIntegerField(
+        default=55,
+        help_text="Candidates below this are hidden entirely. Showing "
+        "implausible options produces confusion, not signal.",
+    )
+    candidate_limit = models.PositiveIntegerField(
+        default=200,
+        help_text="How many candidates FTS5 narrowing hands to scoring. Caps "
+        "matching cost so it does not grow with the catalogue.",
+    )
+    prompt_budget = models.PositiveIntegerField(
+        default=5,
+        help_text="Maximum disambiguation prompts shown per receipt. Players "
+        "who see fifteen icons ignore all of them.",
+    )
+
+    class Meta:
+        verbose_name = "Matching configuration"
+        verbose_name_plural = "Matching configuration"
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get(cls) -> "MatchConfig":
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def __str__(self) -> str:
+        return "Matching configuration"
+
+
 class MatchTier(models.TextChoices):
     """Which tier of the matching cascade resolved a line item."""
 

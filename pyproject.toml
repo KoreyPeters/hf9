@@ -19,6 +19,7 @@ dependencies = [
     "sqids>=0.5.2",
     "webauthn>=2.7.1",
     "whitenoise>=6.12.0",
+    "rapidfuzz>=3.14.5",
 ]
 
 [dependency-groups]

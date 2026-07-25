@@ -6,6 +6,7 @@ from .models import (
     AnonymisedLineItem,
     AnonymisedPurchase,
     Manufacturer,
+    MatchConfig,
     Product,
     ProductAlias,
     ProductCategory,
@@ -37,6 +38,17 @@ class ManufacturerAdmin(admin.ModelAdmin):
     list_filter = ["status"]
     search_fields = ["name"]
     readonly_fields = ["sqid", "created_at"]
+
+
+@admin.register(MatchConfig)
+class MatchConfigAdmin(admin.ModelAdmin):
+    """Singleton. Thresholds are calibration and change as real data arrives."""
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return not MatchConfig.objects.exists()
+
+    def has_delete_permission(self, request: HttpRequest, obj: object = None) -> bool:
+        return False
 
 
 @admin.register(ProductCategory)
