@@ -81,3 +81,182 @@ def prompt_rate() -> float | None:
         disambiguation_state=PurchaseLineItem.STATE_PENDING
     ).count()
     return pending / total
+
+
+# ── Convergence ───────────────────────────────────────────────────────────────
+
+
+def alias_hit_rate(store: object | None = None) -> float | None:
+    """Share of line items resolved by an exact alias — the headline metric.
+
+    Tier 0 hits are free, deterministic and need nobody's attention, so a rising
+    share means the system is learning. A flat one means it is not, however much
+    the catalogue has grown. Restrictable to a store because each chain's
+    strings are learned separately, and an overall average hides a chain that is
+    not converging at all.
+    """
+    lines = PurchaseLineItem.objects.all()
+    if store is not None:
+        lines = lines.filter(purchase__store=store)
+    total = lines.count()
+    if not total:
+        return None
+    return lines.filter(match_tier=MatchTier.ALIAS).count() / total
+
+
+def prompt_completion_rate() -> float | None:
+    """Share of prompts a player actually answered.
+
+    Watched alongside the prompt rate, never instead of it. A low prompt rate is
+    good; a high one that players ignore is worse than useless, because the
+    items still look unresolved while the attention has already been spent.
+    """
+    asked = PurchaseLineItem.objects.filter(
+        disambiguation_state__in=[
+            PurchaseLineItem.STATE_PENDING,
+            PurchaseLineItem.STATE_RESOLVED,
+        ]
+    ).count()
+    if not asked:
+        return None
+    return (
+        PurchaseLineItem.objects.filter(
+            disambiguation_state=PurchaseLineItem.STATE_RESOLVED
+        ).count()
+        / asked
+    )
+
+
+def new_record_rate() -> float | None:
+    """Unverified products per line item recorded.
+
+    Should fall. A rate that stays flat means every receipt is still inventing
+    products, which is duplicate fragmentation accumulating rather than a
+    catalogue forming.
+    """
+    from .models import Product
+
+    lines = PurchaseLineItem.objects.count()
+    if not lines:
+        return None
+    return Product.objects.filter(status=Product.STATUS_UNVERIFIED).count() / lines
+
+
+def auto_merge_rate() -> float | None:
+    """Share of products that have been merged away.
+
+    Should stay flat rather than grow. Growth means duplicates are being created
+    faster than clustering prevents them, and the admin queue is next.
+    """
+    from .models import Product
+
+    total = Product.objects.count()
+    if not total:
+        return None
+    return Product.objects.filter(status=Product.STATUS_RETIRED).count() / total
+
+
+def alias_demotion_rate() -> float | None:
+    """Share of aliases players have contradicted — the poisoning detector.
+
+    A wrong alias is applied silently and confidently to every future receipt
+    carrying its string, so this is the one rate whose rise is unambiguously
+    bad.
+    """
+    total = ProductAlias.objects.count()
+    if not total:
+        return None
+    return (
+        ProductAlias.objects.filter(status=ProductAlias.STATUS_DEMOTED).count() / total
+    )
+
+
+def summary() -> dict[str, object]:
+    """Everything at once, for an admin glance or a management command."""
+    accuracy = adjudication_accuracy()
+    return {
+        "alias_hit_rate": alias_hit_rate(),
+        "tier_distribution": tier_distribution(),
+        "prompt_rate": prompt_rate(),
+        "prompt_completion_rate": prompt_completion_rate(),
+        "new_record_rate": new_record_rate(),
+        "auto_merge_rate": auto_merge_rate(),
+        "alias_demotion_rate": alias_demotion_rate(),
+        "adjudication_accuracy": accuracy.accuracy,
+        "adjudications_judged": accuracy.judged,
+    }
+
+
+# ── Daily snapshots ───────────────────────────────────────────────────────────
+
+
+def _counts_for(lines) -> dict[str, int]:
+    from django.db.models import Count as _Count
+
+    by_tier = dict(
+        lines.values_list("match_tier")
+        .annotate(n=_Count("pk"))
+        .values_list("match_tier", "n")
+    )
+    by_state = dict(
+        lines.values_list("disambiguation_state")
+        .annotate(n=_Count("pk"))
+        .values_list("disambiguation_state", "n")
+    )
+    return {
+        "line_items": lines.count(),
+        "alias_hits": by_tier.get(MatchTier.ALIAS, 0),
+        "fuzzy_matches": by_tier.get(MatchTier.FUZZY, 0),
+        "adjudicated": by_tier.get(MatchTier.ADJUDICATED, 0),
+        "player_resolved": by_tier.get(MatchTier.PLAYER, 0),
+        "unmatched": by_tier.get(MatchTier.UNMATCHED, 0),
+        "prompts_pending": by_state.get(PurchaseLineItem.STATE_PENDING, 0),
+        "prompts_resolved": by_state.get(PurchaseLineItem.STATE_RESOLVED, 0),
+    }
+
+
+def take_snapshot() -> int:
+    """Record today's numbers, platform-wide and per store. Returns rows written.
+
+    Recorded rather than derived on demand because the question is whether these
+    rates are *moving*, and a rate computed today says nothing about that.
+    """
+    from django.utils import timezone
+
+    from .models import MetricsSnapshot, Product, Store
+
+    today = timezone.now().date()
+    catalogue_counts = {
+        "unverified_products": Product.objects.filter(
+            status=Product.STATUS_UNVERIFIED
+        ).count(),
+        "retired_products": Product.objects.filter(
+            status=Product.STATUS_RETIRED
+        ).count(),
+        "demoted_aliases": ProductAlias.objects.filter(
+            status=ProductAlias.STATUS_DEMOTED
+        ).count(),
+        "aliases_needing_review": ProductAlias.objects.filter(
+            needs_review=True
+        ).count(),
+    }
+
+    written = 0
+    MetricsSnapshot.objects.update_or_create(
+        taken_on=today,
+        store=None,
+        defaults={**_counts_for(PurchaseLineItem.objects.all()), **catalogue_counts},
+    )
+    written += 1
+
+    # Per store, because convergence is per retailer — each chain's strings are
+    # learned separately.
+    for store in Store.objects.all().iterator():
+        lines = PurchaseLineItem.objects.filter(purchase__store=store)
+        if not lines.exists():
+            continue
+        MetricsSnapshot.objects.update_or_create(
+            taken_on=today, store=store, defaults=_counts_for(lines)
+        )
+        written += 1
+    return written

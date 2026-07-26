@@ -144,6 +144,11 @@ def award_for_purchase(purchase: Purchase) -> Decimal:
     if purchase.points_awarded is not None:
         return Decimal("0")
 
+    if purchase.hold_reason:
+        # Deliberately leaves points_awarded unset, so releasing the hold pays
+        # out rather than finding the purchase already settled at zero.
+        return Decimal("0")
+
     amount = calculate(purchase)
     if amount <= 0:
         # Still stamped, so an empty or all-refund receipt is settled rather

@@ -435,6 +435,76 @@ class ProductRatingSnapshot(models.Model):
         return f"{self.product.canonical_name} @ {self.taken_on}: {self.score}"
 
 
+class MetricsSnapshot(models.Model):
+    """One day's measurements, so convergence can be told from stagnation.
+
+    The design's central claim is that the system improves without curation.
+    Point-in-time numbers cannot support or refute that — a catalogue growing
+    steadily while the prompt rate never falls looks identical to one that is
+    working, unless you can see both trended.
+
+    A null store is the whole platform. Per-store rows exist because the
+    convergence that matters is per retailer: each chain's receipt strings are
+    learned separately, so an overall average hides a chain that is not
+    converging at all.
+    """
+
+    taken_on = models.DateField(db_index=True)
+    store = models.ForeignKey(
+        Store,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="metrics_snapshots",
+        help_text="Null means the whole platform.",
+    )
+
+    line_items = models.PositiveIntegerField(default=0)
+    alias_hits = models.PositiveIntegerField(default=0)
+    fuzzy_matches = models.PositiveIntegerField(default=0)
+    adjudicated = models.PositiveIntegerField(default=0)
+    player_resolved = models.PositiveIntegerField(default=0)
+    unmatched = models.PositiveIntegerField(default=0)
+
+    prompts_pending = models.PositiveIntegerField(default=0)
+    prompts_resolved = models.PositiveIntegerField(default=0)
+
+    unverified_products = models.PositiveIntegerField(default=0)
+    retired_products = models.PositiveIntegerField(default=0)
+    demoted_aliases = models.PositiveIntegerField(default=0)
+    aliases_needing_review = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["taken_on", "store"],
+                name="one_metrics_snapshot_per_store_per_day",
+            ),
+            models.UniqueConstraint(
+                fields=["taken_on"],
+                condition=models.Q(store__isnull=True),
+                name="one_platform_metrics_snapshot_per_day",
+            ),
+        ]
+        ordering = ["taken_on"]
+
+    @property
+    def alias_hit_rate(self) -> float | None:
+        """The headline convergence metric.
+
+        Tier 0 hits are free, deterministic and need nobody's attention, so a
+        rising share means the system is learning. A flat one means it is not,
+        however much the catalogue has grown.
+        """
+        if not self.line_items:
+            return None
+        return self.alias_hits / self.line_items
+
+    def __str__(self) -> str:
+        where = self.store.name if self.store else "platform"
+        return f"{where} @ {self.taken_on}"
+
+
 class ActionCentreState(models.Model):
     """What a player has already seen, and what they have agreed to be sent.
 
@@ -702,6 +772,23 @@ class Purchase(models.Model):
         help_text="Set once, when the receipt is first read. Its presence is "
         "what stops a reprocessed or re-matched purchase paying out twice.",
     )
+
+    HOLD_VELOCITY = "velocity"
+    HOLD_HIGH_VALUE = "high_value"
+    HOLD_CHOICES = [
+        (HOLD_VELOCITY, "Unusually many receipts in a short time"),
+        (HOLD_HIGH_VALUE, "Unusually large receipt"),
+    ]
+    hold_reason = models.CharField(
+        max_length=20,
+        choices=HOLD_CHOICES,
+        blank=True,
+        db_index=True,
+        help_text="Withholds points pending review. The receipt is still read "
+        "and still counts toward ratings — holding the data as well as the "
+        "reward would punish the honest majority to inconvenience a few.",
+    )
+    held_at = models.DateTimeField(null=True, blank=True)
     processing_problems = models.JSONField(
         default=list,
         blank=True,

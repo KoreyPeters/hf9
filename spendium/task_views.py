@@ -20,6 +20,18 @@ def sweep_purchase_anonymisation() -> None:
         service.anonymise_purchase(purchase_id)
 
 
+@task("snapshot-metrics")
+def snapshot_metrics() -> None:
+    """Record today's convergence numbers, platform-wide and per store.
+
+    Daily. The claim these exist to test is that the system improves without
+    curation, and a rate computed once says nothing about whether it is moving.
+    """
+    from . import metrics
+
+    metrics.take_snapshot()
+
+
 @task("recompute-hotness")
 def recompute_hotness() -> None:
     """Refresh which products are worth interrupting players about.

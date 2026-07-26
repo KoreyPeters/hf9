@@ -2,9 +2,10 @@ from django.contrib import admin, messages
 from django.db.models import QuerySet
 from django.http import HttpRequest
 
-from . import catalogue
+from . import abuse, catalogue
 from .models import (
     AnonymisedLineItem,
+    MetricsSnapshot,
     AnonymisedPurchase,
     Manufacturer,
     MatchConfig,
@@ -164,12 +165,32 @@ class PurchaseAdmin(admin.ModelAdmin):
         "total",
         "anonymise_after",
     ]
-    list_filter = ["store", "purchased_at"]
+    list_filter = ["hold_reason", "processing_status", "store", "purchased_at"]
     search_fields = ["player__username", "store__name"]
     autocomplete_fields = ["player", "store"]
-    readonly_fields = ["created_at", "image_phash", "image_deleted_at"]
+    readonly_fields = ["created_at", "image_phash", "image_deleted_at", "held_at"]
     inlines = [PurchaseLineItemInline]
     date_hierarchy = "purchased_at"
+    actions = ["release_hold"]
+
+    @admin.action(description="Release hold and award points")
+    def release_hold(self, request: HttpRequest, queryset: QuerySet) -> None:
+        """Clear a hold and pay out.
+
+        A held purchase is a player waiting for points they may well have
+        earned, so this is the queue that should be worked daily rather than
+        when someone remembers.
+        """
+        released = paid = 0
+        for purchase in queryset.exclude(hold_reason=""):
+            amount = abuse.release(purchase)
+            released += 1
+            paid += 1 if amount else 0
+        self.message_user(
+            request,
+            f"Released {released} hold(s); {paid} paid out.",
+            level=messages.SUCCESS,
+        )
 
 
 class AnonymisedLineItemInline(admin.TabularInline):
@@ -227,3 +248,26 @@ class ProductAliasAdmin(admin.ModelAdmin):
     search_fields = ["raw_text", "raw_text_normalised", "product__canonical_name"]
     autocomplete_fields = ["product", "store"]
     readonly_fields = ["raw_text_normalised", "created_at", "updated_at"]
+
+
+@admin.register(MetricsSnapshot)
+class MetricsSnapshotAdmin(admin.ModelAdmin):
+    """Read-only history. The question these answer is whether rates are moving."""
+
+    list_display = [
+        "taken_on",
+        "store",
+        "line_items",
+        "alias_hits",
+        "prompts_pending",
+        "unverified_products",
+        "demoted_aliases",
+    ]
+    list_filter = ["store", "taken_on"]
+    date_hierarchy = "taken_on"
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: object = None) -> bool:
+        return False

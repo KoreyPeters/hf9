@@ -66,6 +66,30 @@ resource "google_cloud_scheduler_job" "sweep_purchase_anonymisation" {
   }
 }
 
+# Convergence metrics. Recorded daily rather than derived on demand, because
+# the claim they exist to test is that the system improves without curation —
+# and a rate computed once says nothing about whether it is moving.
+resource "google_cloud_scheduler_job" "snapshot_metrics" {
+  name             = "hf-snapshot-metrics"
+  project          = var.project
+  region           = var.region
+  schedule         = "30 5 * * *"
+  time_zone        = "UTC"
+  attempt_deadline = "600s"
+
+  depends_on = [google_project_service.apis]
+
+  http_target {
+    uri         = "https://humanflourish.ing/tasks/snapshot-metrics/"
+    http_method = "POST"
+
+    oidc_token {
+      service_account_email = google_service_account.tasks.email
+      audience              = "https://humanflourish.ing"
+    }
+  }
+}
+
 # Which products are worth interrupting players about. Runs after the rating
 # snapshot, since one of the signals is a rating having moved sharply and that
 # comparison needs the day's snapshot to exist. Manual admin flags survive it.

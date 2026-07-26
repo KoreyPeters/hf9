@@ -623,14 +623,31 @@ no volume metric will have noticed yet.*
 
 ### Phase 11 — Metrics and abuse controls
 
-- [ ] Instrument alias hit rate, tier distribution, prompt and completion rates
-- [ ] Instrument new-record, auto-merge, and demotion rates
-- [ ] Submission velocity check
-- [ ] High-value receipt hold
-- [ ] Negative line item suppression
+- [x] Instrument alias hit rate, tier distribution, prompt and completion rates
+- [x] Instrument new-record, auto-merge, and demotion rates
+- [x] Submission velocity check
+- [x] High-value receipt hold
+- [x] Negative line item suppression *(already built with the points formula in Phase 9b —
+  excluded from earning rather than subtracted, so a refund never eats into points earned
+  on the rest of the shop.)*
 
 (Perceptual-hash deduplication and the members-only gate move to Phase 6b, where
 the upload path they guard is built.)
+
+*Both holds withhold points, never the receipt. The data is worth having regardless of
+whether the person supplying it turns out to be honest, and a false positive that delays a
+payout is recoverable where one that discards somebody's weekly shop is not. No retroactive
+clawback: points are settled once.*
+
+*Metrics are snapshotted daily, platform-wide and per store, because the claim they exist to
+test is that the system improves without curation — and a rate computed once says nothing
+about whether it is moving. Per store because each chain's receipt strings are learned
+separately, so an overall average hides a chain that is not converging at all.*
+
+*Deliberately not built: percentile-based risk tiers and the isolation-forest model from the
+superseded draft. Their thresholds can only come from real player behaviour, and guessing
+them now would produce controls calibrated to an imagined population. The draft's own advice
+was 4–6 weeks of observation first.*
 
 ### Phase 12 — Documentation
 

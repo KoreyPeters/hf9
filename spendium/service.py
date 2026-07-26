@@ -12,7 +12,7 @@ from django.utils import timezone
 from core.tasks import enqueue
 from points.models import PointTransaction
 
-from . import adjudication, extraction, imaging, matching, points
+from . import abuse, adjudication, extraction, imaging, matching, points
 from .models import (
     AnonymisedLineItem,
     AnonymisedPurchase,
@@ -200,6 +200,11 @@ def process_receipt(purchase_id: int, client: Any | None = None) -> Purchase | N
         line.save(update_fields=["raw_text_normalised"])
 
     _adjudicate_residuals(purchase, results, client=client)
+
+    # Evaluated before payment, so a held purchase is never paid and then
+    # clawed back. The receipt itself is already read and already counts toward
+    # ratings — only the reward waits.
+    abuse.evaluate(purchase)
 
     # Paid once the receipt has been read, not once it has been rated. Rating is
     # a bonus on top; gating the purchase reward on it would withhold points the

@@ -278,6 +278,11 @@ SPENDIUM = {
     # warrant interrupting someone.
     "ONBOARDING_EMAILS": config("ONBOARDING_EMAILS", default=2, cast=int),
     "EMAIL_MIN_GAP_DAYS": config("EMAIL_MIN_GAP_DAYS", default=7, cast=int),
+    # Abuse controls. Both hold points for review rather than rejecting the
+    # receipt: the data is still worth having, and a false positive that
+    # delays a reward is recoverable where one that discards a shop is not.
+    "VELOCITY_LIMIT_PER_HOUR": config("VELOCITY_LIMIT_PER_HOUR", default=5, cast=int),
+    "HIGH_VALUE_HOLD": config("HIGH_VALUE_HOLD", default="500"),
     # How the purchase was evidenced. A photographed till roll is worth more
     # than an unevidenced claim.
     "VERIFICATION_MULTIPLIERS": {
