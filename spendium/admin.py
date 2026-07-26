@@ -2,6 +2,7 @@ from django.contrib import admin, messages
 from django.db.models import QuerySet
 from django.http import HttpRequest
 
+from . import catalogue
 from .models import (
     AnonymisedLineItem,
     AnonymisedPurchase,
@@ -113,32 +114,16 @@ class ProductAdmin(admin.ModelAdmin):
             return
 
         target = selected[0].resolve_canonical()
-        losers = selected[1:]
-
         merged = 0
-        for loser in losers:
-            if loser.pk == target.pk:
-                continue
-            # Guard against cycles: merging one of the target's own ancestors
-            # into it would make resolve_canonical() loop.
-            if target.resolve_canonical().pk == loser.pk:
+        for loser in selected[1:]:
+            if catalogue.merge_products(loser, target):
+                merged += 1
+            else:
                 self.message_user(
                     request,
                     f"Skipped {loser.canonical_name} — merging it would create a cycle.",
                     level=messages.WARNING,
                 )
-                continue
-
-            # No collision check is needed. (store, raw_text_normalised) is
-            # unique across the whole alias table, not per product, so a string
-            # already resolves to exactly one product per retailer — the target
-            # cannot already claim a string the loser holds.
-            loser.aliases.update(product=target)
-            loser.upcs.update(product=target)
-            loser.merged_into = target
-            loser.status = Product.STATUS_RETIRED
-            loser.save()
-            merged += 1
 
         self.message_user(
             request,
@@ -235,9 +220,10 @@ class ProductAliasAdmin(admin.ModelAdmin):
         "status",
         "confirmation_count",
         "contradiction_count",
+        "needs_review",
         "source",
     ]
-    list_filter = ["status", "source", "store"]
+    list_filter = ["needs_review", "status", "source", "store"]
     search_fields = ["raw_text", "raw_text_normalised", "product__canonical_name"]
     autocomplete_fields = ["product", "store"]
     readonly_fields = ["raw_text_normalised", "created_at", "updated_at"]

@@ -322,7 +322,7 @@ def test_adjudication_can_be_disabled(
 
 @pytest.mark.django_db
 def test_a_demoted_alias_is_not_resurrected_by_the_model(
-    shopper: Player, store: Store, near_miss_catalogue: Product, fake_model
+    shopper: Player, store: Store, near_miss_catalogue: Product, fake_model, voter
 ) -> None:
     """A string players have contradicted must not be quietly reclaimed.
 
@@ -336,7 +336,7 @@ def test_a_demoted_alias_is_not_resurrected_by_the_model(
     alias = ProductAlias.objects.create(
         product=incumbent, store=store, raw_text="TP-COLG-250"
     )
-    alias.contradict()
+    alias.contradict(voter)
     assert alias.status == ProductAlias.STATUS_DEMOTED
 
     config = MatchConfig.get()
@@ -391,7 +391,7 @@ def test_accuracy_is_none_before_any_player_rules(store: Store) -> None:
 
 
 @pytest.mark.django_db
-def test_accuracy_counts_confirmations_and_contradictions(store: Store) -> None:
+def test_accuracy_counts_confirmations_and_contradictions(store: Store, voter) -> None:
     product = Product.objects.create(canonical_name="Anything")
     right = ProductAlias.objects.create(
         product=product,
@@ -405,8 +405,8 @@ def test_accuracy_counts_confirmations_and_contradictions(store: Store) -> None:
         raw_text="WRONG",
         source=ProductAlias.SOURCE_ADJUDICATION,
     )
-    right.confirm()
-    wrong.contradict()
+    right.confirm(voter)
+    wrong.contradict(voter)
 
     accuracy = metrics.adjudication_accuracy()
     assert accuracy.confirmed == 1
@@ -415,13 +415,13 @@ def test_accuracy_counts_confirmations_and_contradictions(store: Store) -> None:
 
 
 @pytest.mark.django_db
-def test_accuracy_ignores_player_sourced_aliases(store: Store) -> None:
+def test_accuracy_ignores_player_sourced_aliases(store: Store, voter) -> None:
     """Measuring the model against aliases players wrote would be circular."""
     product = Product.objects.create(canonical_name="Anything")
     alias = ProductAlias.objects.create(
         product=product, store=store, raw_text="P", source=ProductAlias.SOURCE_PLAYER
     )
-    alias.confirm()
+    alias.confirm(voter)
     assert metrics.adjudication_accuracy().judged == 0
 
 

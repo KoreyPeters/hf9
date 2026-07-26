@@ -72,11 +72,11 @@ def test_aliases_become_searchable(product: Product, store: Store) -> None:
 
 
 @pytest.mark.django_db
-def test_demoted_aliases_leave_the_index(product: Product, store: Store) -> None:
+def test_demoted_aliases_leave_the_index(product: Product, store: Store, voter) -> None:
     alias = ProductAlias.objects.create(
         product=product, store=store, raw_text="TP-COLG-250"
     )
-    alias.contradict()
+    alias.contradict(voter)
     assert search.narrow("tp colg 250", 10) == []
 
 
@@ -176,34 +176,36 @@ def test_tier0_falls_back_to_global(product: Product, store: Store) -> None:
 
 
 @pytest.mark.django_db
-def test_tier0_ignores_demoted_aliases(product: Product, store: Store) -> None:
+def test_tier0_ignores_demoted_aliases(product: Product, store: Store, voter) -> None:
     """Matching on a contradicted alias would re-apply a known error confidently."""
     alias = ProductAlias.objects.create(
         product=product, store=store, raw_text="TP-COLG-250"
     )
-    alias.contradict()
+    alias.contradict(voter)
     assert matching.match_line_item("TP-COLG-250", store=store).tier != MatchTier.ALIAS
 
 
 @pytest.mark.django_db
-def test_tier0_provisional_alias_still_prompts(product: Product, store: Store) -> None:
+def test_tier0_provisional_alias_still_prompts(
+    product: Product, store: Store, voter
+) -> None:
     """Confirmed once is enough to match on, not enough to stop asking."""
     alias = ProductAlias.objects.create(
         product=product, store=store, raw_text="TP-COLG-250"
     )
-    alias.confirm()
+    alias.confirm(voter)
     assert matching.match_line_item("TP-COLG-250", store=store).needs_prompt is True
 
 
 @pytest.mark.django_db
 def test_tier0_authoritative_alias_does_not_prompt(
-    product: Product, store: Store
+    product: Product, store: Store, voter, other_voter
 ) -> None:
     alias = ProductAlias.objects.create(
         product=product, store=store, raw_text="TP-COLG-250"
     )
-    alias.confirm()
-    alias.confirm()
+    alias.confirm(voter)
+    alias.confirm(other_voter)
     assert matching.match_line_item("TP-COLG-250", store=store).needs_prompt is False
 
 

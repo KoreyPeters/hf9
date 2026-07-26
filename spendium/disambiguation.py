@@ -18,7 +18,7 @@ from typing import Any
 
 from django.db.models import Count
 
-from . import matching
+from . import catalogue, matching
 from .models import (
     MatchConfig,
     MatchTier,
@@ -124,7 +124,9 @@ def _require_open_window(line: PurchaseLineItem) -> None:
         )
 
 
-def _apply_alias(line: PurchaseLineItem, product: Product, store: Store | None) -> None:
+def _apply_alias(
+    line: PurchaseLineItem, product: Product, store: Store | None, player: object
+) -> None:
     """Record what the player said about this string, at this retailer.
 
     Uniqueness is global per (store, string), so there is only ever one row to
@@ -135,6 +137,9 @@ def _apply_alias(line: PurchaseLineItem, product: Product, store: Store | None) 
     alias falls back to provisional and starts prompting again. Only once it is
     fully demoted does the string become free to mean something else, at which
     point the dissenting player's choice takes it over.
+
+    Votes are per player, so someone who resolves the same string on two of
+    their own receipts is counted once, not twice.
     """
     if not line.raw_text_normalised:
         return
@@ -144,30 +149,35 @@ def _apply_alias(line: PurchaseLineItem, product: Product, store: Store | None) 
     ).first()
 
     if alias is None:
-        ProductAlias.objects.create(
+        alias = ProductAlias.objects.create(
             product=product,
             store=store,
             raw_text=line.raw_text,
             source=ProductAlias.SOURCE_PLAYER,
-            confirmation_count=1,
         )
+        alias.confirm(player)
         return
 
     if alias.product_id == product.pk:
-        alias.confirm()
+        alias.confirm(player)
         return
 
-    alias.contradict()
+    alias.contradict(player)
     if alias.status == ProductAlias.STATUS_DEMOTED:
+        # The evidence for the old meaning is exhausted, so the string is free
+        # to be reassigned. Earlier votes are cleared with it — they were about
+        # a different product and would otherwise carry over as support for one
+        # nobody voted for.
+        alias.votes.all().delete()
         alias.product = product
         alias.source = ProductAlias.SOURCE_PLAYER
-        alias.confirmation_count = 1
-        alias.contradiction_count = 0
-        alias._recompute_status()
         alias.save()
+        alias.confirm(player)
 
 
-def _resolve(line: PurchaseLineItem, product: Product) -> PurchaseLineItem:
+def _resolve(
+    line: PurchaseLineItem, product: Product, player: object
+) -> PurchaseLineItem:
     line.product = product
     line.match_tier = MatchTier.PLAYER
     # The player is the authority here, not a scorer, so there is no
@@ -183,7 +193,7 @@ def _resolve(line: PurchaseLineItem, product: Product) -> PurchaseLineItem:
             "disambiguation_state",
         ]
     )
-    _apply_alias(line, product, line.purchase.store)
+    _apply_alias(line, product, line.purchase.store, player)
     return line
 
 
@@ -192,13 +202,13 @@ def confirm(line: PurchaseLineItem) -> PurchaseLineItem:
     _require_open_window(line)
     if line.product is None:
         raise ValueError("Nothing to confirm — this line has no match.")
-    return _resolve(line, line.product)
+    return _resolve(line, line.product, line.purchase.player)
 
 
 def choose(line: PurchaseLineItem, product: Product) -> PurchaseLineItem:
     """The player picks a different catalogue record."""
     _require_open_window(line)
-    return _resolve(line, product.resolve_canonical())
+    return _resolve(line, product.resolve_canonical(), line.purchase.player)
 
 
 def submit_free_text(line: PurchaseLineItem, text: str) -> PurchaseLineItem:
@@ -222,11 +232,10 @@ def submit_free_text(line: PurchaseLineItem, text: str) -> PurchaseLineItem:
         line.raw_text, text, store=line.purchase.store, config=config
     )
     if result.product is not None and not result.needs_prompt:
-        return _resolve(line, result.product)
+        return _resolve(line, result.product, line.purchase.player)
 
-    product = Product.objects.create(
-        canonical_name=text,
-        status=Product.STATUS_UNVERIFIED,
-        confidence_source=Product.SOURCE_PLAYER,
-    )
-    return _resolve(line, product)
+    # Cluster rather than create outright: another player may already have
+    # described this product in almost the same words, and two records would
+    # split its ratings.
+    product = catalogue.create_or_cluster(text)
+    return _resolve(line, product, line.purchase.player)

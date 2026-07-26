@@ -208,6 +208,11 @@ SPENDIUM = {
     "ALIAS_CONFIRMATIONS_REQUIRED": config(
         "ALIAS_CONFIRMATIONS_REQUIRED", default=2, cast=int
     ),
+    # Contradictions from this many distinct players means the string is
+    # genuinely disputed rather than mis-tapped, and needs a human.
+    "ALIAS_REVIEW_CONTRADICTIONS": config(
+        "ALIAS_REVIEW_CONTRADICTIONS", default=2, cast=int
+    ),
     # Days a purchase stays player-linked. At expiry the row is copied to the
     # anonymous layer and deleted. This is also the window in which a player may
     # rate and disambiguate their purchases.

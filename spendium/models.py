@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Count, Q
 from django.utils import timezone
 from sqids import Sqids
 
@@ -303,6 +304,13 @@ class ProductAlias(models.Model):
             models.Index(fields=["status"]),
         ]
 
+    needs_review = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Set when players keep contradicting this alias. A string "
+        "several people disagree about needs a human, not another vote.",
+    )
+
     def save(self, *args: object, **kwargs: object) -> None:
         self.raw_text_normalised = normalise_raw_text(self.raw_text)
         super().save(*args, **kwargs)
@@ -322,18 +330,42 @@ class ProductAlias(models.Model):
         else:
             self.status = self.STATUS_DEMOTED
 
-    def confirm(self) -> None:
-        """Record agreement that this string means this product.
+    def _recount(self) -> None:
+        """Derive the counts from the votes rather than trusting a running total.
 
-        Independence — that each confirmation comes from a different player — is
-        not enforced here. That check needs a per-confirmation record to compare
-        against, which arrives with the disambiguation flow.
+        Counting taps would let one player promote an alias to authoritative by
+        confirming twice, which is the precise failure the two-confirmation rule
+        exists to prevent. Deriving from one row per player makes that
+        impossible rather than merely discouraged.
         """
-        self.confirmation_count += 1
+        counts = self.votes.aggregate(
+            yes=Count("pk", filter=Q(agreed=True)),
+            no=Count("pk", filter=Q(agreed=False)),
+        )
+        self.confirmation_count = counts["yes"] or 0
+        self.contradiction_count = counts["no"] or 0
         self._recompute_status()
+        self.needs_review = (
+            self.contradiction_count >= settings.SPENDIUM["ALIAS_REVIEW_CONTRADICTIONS"]
+        )
         self.save()
 
-    def contradict(self) -> None:
+    def record_vote(self, player: object, agreed: bool) -> None:
+        """Store one player's verdict, replacing any earlier one from them.
+
+        A player who changes their mind supersedes themselves rather than
+        stacking, so nobody can outvote the crowd by clicking repeatedly.
+        """
+        AliasConfirmation.objects.update_or_create(
+            alias=self, player=player, defaults={"agreed": agreed}
+        )
+        self._recount()
+
+    def confirm(self, player: object) -> None:
+        """Record agreement that this string means this product."""
+        self.record_vote(player, agreed=True)
+
+    def contradict(self, player: object) -> None:
         """Record disagreement, reopening the alias to prompting.
 
         Contradictions net against confirmations rather than jumping straight to
@@ -341,13 +373,43 @@ class ProductAlias(models.Model):
         provisional and starts prompting again; it does not vanish on a single
         objection, and it does not survive a sustained one either.
         """
-        self.contradiction_count += 1
-        self._recompute_status()
-        self.save()
+        self.record_vote(player, agreed=False)
 
     def __str__(self) -> str:
         scope = self.store.name if self.store else "global"
         return f"{self.raw_text} ({scope}) → {self.product.canonical_name}"
+
+
+class AliasConfirmation(models.Model):
+    """One player's verdict on what a receipt string means.
+
+    Exists so that "two independent confirmations" means two *people*. Without a
+    row per player the counts are just a tally of taps, and a single mis-tapping
+    player could promote a wrong alias to authoritative on their own — after
+    which it would be applied silently to every future receipt carrying that
+    string.
+    """
+
+    alias = models.ForeignKey(
+        ProductAlias, on_delete=models.CASCADE, related_name="votes"
+    )
+    player = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="alias_votes"
+    )
+    agreed = models.BooleanField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["alias", "player"], name="one_alias_vote_per_player"
+            )
+        ]
+
+    def __str__(self) -> str:
+        verdict = "agreed" if self.agreed else "disagreed"
+        return f"{self.player} {verdict}: {self.alias_id}"
 
 
 class MatchConfig(models.Model):
@@ -378,6 +440,12 @@ class MatchConfig(models.Model):
         default=200,
         help_text="How many candidates FTS5 narrowing hands to scoring. Caps "
         "matching cost so it does not grow with the catalogue.",
+    )
+    auto_merge_score = models.PositiveIntegerField(
+        default=95,
+        help_text="Two unverified records scoring at least this against each "
+        "other are merged without asking. Deliberately higher than the strong "
+        "match bar: a wrong merge is harder to notice than a missed one.",
     )
     adjudication_candidates = models.PositiveIntegerField(
         default=5,

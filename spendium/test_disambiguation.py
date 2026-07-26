@@ -258,15 +258,15 @@ def test_choosing_follows_a_merge(shopper: Player, store: Store) -> None:
 
 @pytest.mark.django_db
 def test_one_dissenter_does_not_overturn_two_confirmations(
-    shopper: Player, store: Store
+    shopper: Player, store: Store, voter, other_voter
 ) -> None:
     """The alias falls back to provisional and resumes prompting — no more."""
     established = Product.objects.create(canonical_name="Established Product")
     alias = ProductAlias.objects.create(
         product=established, store=store, raw_text="HEINZ 750"
     )
-    alias.confirm()
-    alias.confirm()
+    alias.confirm(voter)
+    alias.confirm(other_voter)
 
     other = Product.objects.create(canonical_name="Other Product")
     line = make_line(make_purchase(shopper, store), "HEINZ 750")

@@ -42,6 +42,36 @@ class FakeClient:
         self.models = _FakeModels(list(payloads))
 
 
+@pytest.fixture
+def voter(db: None):
+    """Someone to attribute an alias vote to.
+
+    Votes are per player, so tests cannot record one without saying who cast
+    it — which is the point: two confirmations has to mean two people.
+    """
+    from accounts.models import Player
+
+    return Player.objects.create_user(username="voter", email="voter@example.com")
+
+
+@pytest.fixture
+def other_voter(db: None):
+    from accounts.models import Player
+
+    return Player.objects.create_user(
+        username="other-voter", email="other-voter@example.com"
+    )
+
+
+@pytest.fixture
+def third_voter(db: None):
+    from accounts.models import Player
+
+    return Player.objects.create_user(
+        username="third-voter", email="third-voter@example.com"
+    )
+
+
 @pytest.fixture(autouse=True)
 def no_real_model_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     def refuse() -> None:

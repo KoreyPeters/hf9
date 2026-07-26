@@ -115,72 +115,105 @@ def test_new_alias_starts_provisional_and_unconfirmed(
 
 
 @pytest.mark.django_db
-def test_single_confirmation_stays_provisional(product: Product, store: Store) -> None:
+def test_single_confirmation_stays_provisional(
+    product: Product, store: Store, voter
+) -> None:
     """One confirmation is not enough — a lone mis-tap must not become authoritative."""
     alias = ProductAlias.objects.create(
         product=product, store=store, raw_text="TP-COLG-250"
     )
-    alias.confirm()
+    alias.confirm(voter)
     assert alias.status == ProductAlias.STATUS_PROVISIONAL
 
 
 @pytest.mark.django_db
 def test_second_confirmation_promotes_to_authoritative(
-    product: Product, store: Store
+    product: Product, store: Store, voter, other_voter
 ) -> None:
     alias = ProductAlias.objects.create(
         product=product, store=store, raw_text="TP-COLG-250"
     )
-    alias.confirm()
-    alias.confirm()
+    alias.confirm(voter)
+    alias.confirm(other_voter)
     assert alias.status == ProductAlias.STATUS_AUTHORITATIVE
     assert alias.net_confirmations == 2
 
 
 @pytest.mark.django_db
-def test_contradiction_demotes_authoritative_to_provisional(
-    product: Product, store: Store
+def test_one_dissenter_reopens_an_authoritative_alias(
+    product: Product, store: Store, voter, other_voter, third_voter
 ) -> None:
-    """A disputed alias reopens for prompting rather than disappearing."""
+    """A disputed alias reopens for prompting rather than disappearing.
+
+    The dissent has to come from someone who had not already agreed. A voter
+    changing their own mind supersedes their earlier vote instead of adding to
+    the tally — see the test below.
+    """
     alias = ProductAlias.objects.create(
         product=product, store=store, raw_text="TP-COLG-250"
     )
-    alias.confirm()
-    alias.confirm()
-    alias.contradict()
+    alias.confirm(voter)
+    alias.confirm(other_voter)
+    alias.contradict(third_voter)
     assert alias.status == ProductAlias.STATUS_PROVISIONAL
 
 
 @pytest.mark.django_db
-def test_sustained_contradiction_demotes(product: Product, store: Store) -> None:
+def test_changing_your_mind_replaces_your_earlier_vote(
+    product: Product, store: Store, voter, other_voter
+) -> None:
+    """One player is one voice, whichever way they end up voting.
+
+    Two agreements then a retraction by one of them leaves one agreement and
+    one objection — not two and one. Counting taps rather than people would let
+    a single player swing an alias on their own.
+    """
+    alias = ProductAlias.objects.create(
+        product=product, store=store, raw_text="TP-COLG-250"
+    )
+    alias.confirm(voter)
+    alias.confirm(other_voter)
+    alias.contradict(voter)
+    assert alias.confirmation_count == 1
+    assert alias.contradiction_count == 1
+    assert alias.status == ProductAlias.STATUS_DEMOTED
+
+
+@pytest.mark.django_db
+def test_sustained_contradiction_demotes(product: Product, store: Store, voter) -> None:
     """Net evidence at or below zero means the alias stops being used."""
     alias = ProductAlias.objects.create(
         product=product, store=store, raw_text="TP-COLG-250"
     )
-    alias.confirm()
-    alias.contradict()
+    alias.confirm(voter)
+    alias.contradict(voter)
     assert alias.status == ProductAlias.STATUS_DEMOTED
 
 
 @pytest.mark.django_db
-def test_demoted_alias_can_recover(product: Product, store: Store) -> None:
+def test_demoted_alias_can_recover(
+    product: Product, store: Store, voter, other_voter
+) -> None:
+    """Two people agreeing outweighs an objection one of them has withdrawn."""
     alias = ProductAlias.objects.create(
         product=product, store=store, raw_text="TP-COLG-250"
     )
-    alias.contradict()
+    alias.contradict(voter)
     assert alias.status == ProductAlias.STATUS_DEMOTED
-    alias.confirm()
-    alias.confirm()
-    assert alias.status == ProductAlias.STATUS_PROVISIONAL
+    alias.confirm(voter)
+    alias.confirm(other_voter)
+    assert alias.status == ProductAlias.STATUS_AUTHORITATIVE
 
 
 @pytest.mark.django_db
-def test_transitions_persist(product: Product, store: Store) -> None:
+def test_transitions_persist(
+    product: Product, store: Store, voter, other_voter
+) -> None:
     alias = ProductAlias.objects.create(
         product=product, store=store, raw_text="TP-COLG-250"
     )
-    alias.confirm()
-    alias.confirm()
+    alias.confirm(voter)
+    alias.confirm(other_voter)
     assert (
         ProductAlias.objects.get(pk=alias.pk).status
         == ProductAlias.STATUS_AUTHORITATIVE
