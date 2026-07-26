@@ -71,8 +71,8 @@ LOGGING = {
     },
 }
 
-_bucket = config("GCS_BUCKET_NAME")
-_media_bucket = config("GCS_MEDIA_BUCKET_NAME")
+_bucket = config("GCS_BUCKET_NAME", cast=clean)
+_media_bucket = config("GCS_MEDIA_BUCKET_NAME", cast=clean)
 
 # Two buckets, and the split matters. `_bucket` is public by design — it serves
 # static files and `allUsers` has objectViewer on it. Uploaded media must never

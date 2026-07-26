@@ -1,11 +1,24 @@
+import string
 from pathlib import Path
 
 from decouple import Csv, config
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
+# Secrets on this project have arrived carrying a UTF-8 BOM and CRLF more than
+# once, because writing one from PowerShell adds both. The failure is silent and
+# nasty: an ALLOWED_HOSTS entry that never matches, a WEBAUTHN_RP_ID that never
+# matches its domain, a TASK_BASE_URL that produces a malformed task target. So
+# every string that comes from the environment is cleaned on the way in.
+_JUNK = string.whitespace + "﻿"
+
+
+def clean(value: str) -> str:
+    return value.strip(_JUNK)
+
+
 SECRET_KEY = config("SECRET_KEY")
-ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost", cast=Csv())
+ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost", cast=Csv(strip=_JUNK))
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -170,18 +183,18 @@ SOCIALACCOUNT_PROVIDERS = {
 EMAIL_VERIFICATION_TTL_HOURS = 48
 
 # Passkey (WebAuthn)
-WEBAUTHN_RP_ID = config("WEBAUTHN_RP_ID", default="localhost")
+WEBAUTHN_RP_ID = config("WEBAUTHN_RP_ID", default="localhost", cast=clean)
 WEBAUTHN_RP_NAME = "Human Flourishing"
-WEBAUTHN_ORIGIN = config("WEBAUTHN_ORIGIN", default="http://localhost:8000")
+WEBAUTHN_ORIGIN = config("WEBAUTHN_ORIGIN", default="http://localhost:8000", cast=clean)
 
 BLACKLIST_RATIO = config("BLACKLIST_RATIO", default=0.50, cast=float)
 BLACKLIST_SUSTAINED_DAYS = config("BLACKLIST_SUSTAINED_DAYS", default=90, cast=int)
 
-GCP_PROJECT = config("GCP_PROJECT", default="")
+GCP_PROJECT = config("GCP_PROJECT", default="", cast=clean)
 GCP_REGION = config("GCP_REGION", default="us-central1")
 CLOUD_TASKS_QUEUE = config("CLOUD_TASKS_QUEUE", default="hf-tasks")
-TASK_BASE_URL = config("TASK_BASE_URL", default="http://localhost:8000")
-TASK_SERVICE_ACCOUNT = config("TASK_SERVICE_ACCOUNT", default="")
+TASK_BASE_URL = config("TASK_BASE_URL", default="http://localhost:8000", cast=clean)
+TASK_SERVICE_ACCOUNT = config("TASK_SERVICE_ACCOUNT", default="", cast=clean)
 
 SQID_SALTS = {
     "candidate": config("SQID_SALT_CANDIDATE"),

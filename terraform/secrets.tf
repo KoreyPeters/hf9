@@ -23,6 +23,9 @@ locals {
     # Receipt images. A private bucket, deliberately not the public asset one.
     "GCS_MEDIA_BUCKET_NAME",
     "ALLOWED_HOSTS",
+    # Cloud Tasks builds its queue path from this. Absent, it defaults to ""
+    # and every enqueue fails with RESOURCE_PROJECT_INVALID.
+    "GCP_PROJECT",
     "TASK_BASE_URL",
     "TASK_SERVICE_ACCOUNT",
     "DJANGO_SUPERUSER_EMAIL",
