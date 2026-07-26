@@ -39,6 +39,19 @@ resource "google_cloud_run_v2_service" "app" {
         value = "hf.settings.prod"
       }
 
+      # The database Litestream restores and replicates. Unset, Django falls
+      # back to BASE_DIR/db.sqlite3 — a path inside the image layer, pristine in
+      # every new container — while Litestream went on faithfully replicating
+      # /data/db.sqlite3, which nothing ever wrote to. Every cold start silently
+      # discarded the whole database and rebuilt an empty one, and the replica
+      # bucket stayed empty because there was never anything at the path it
+      # watched. Plain config rather than a secret: it is a path, and keeping it
+      # visible here is what makes the pairing with litestream.yml checkable.
+      env {
+        name  = "DB_PATH"
+        value = "/data/db.sqlite3"
+      }
+
       dynamic "env" {
         for_each = local.secret_ids
         content {
@@ -57,7 +70,13 @@ resource "google_cloud_run_v2_service" "app" {
           cpu    = "1"
           memory = "512Mi"
         }
-        cpu_idle = true
+        # Litestream replicates from a background process and flushes a final
+        # time on shutdown. Throttling the CPU between requests starves both, so
+        # the WAL would reach GCS late or not at all — the failure this whole
+        # setup exists to prevent. This is what makes scaling to zero safe:
+        # the instance keeps its CPU for as long as it is alive, including the
+        # shutdown grace period where the last sync happens.
+        cpu_idle = false
       }
 
       startup_probe {
