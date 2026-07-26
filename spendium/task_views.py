@@ -20,6 +20,18 @@ def sweep_purchase_anonymisation() -> None:
         service.anonymise_purchase(purchase_id)
 
 
+@task("retro-match")
+def retro_match() -> None:
+    """Re-run matching over recorded line items against the current catalogue.
+
+    Scheduled rather than triggered: the catalogue improves continuously, and
+    nothing about this is urgent enough to justify reacting to every change.
+    """
+    from . import retro
+
+    retro.run()
+
+
 @task("process-receipt")
 def process_receipt(purchase_id: int) -> None:
     """Read an uploaded receipt. Enqueued the moment the upload is accepted."""

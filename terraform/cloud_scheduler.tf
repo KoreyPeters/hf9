@@ -66,6 +66,31 @@ resource "google_cloud_scheduler_job" "sweep_purchase_anonymisation" {
   }
 }
 
+# Retro-matching. Re-runs the matching cascade over line items already recorded,
+# so every alias a player confirms improves receipts read months earlier. This is
+# the compounding mechanism, and it is deliberately unhurried — nothing breaks if
+# a run is missed, it just happens tomorrow instead.
+resource "google_cloud_scheduler_job" "retro_match" {
+  name             = "hf-retro-match"
+  project          = var.project
+  region           = var.region
+  schedule         = "30 4 * * *"
+  time_zone        = "UTC"
+  attempt_deadline = "600s"
+
+  depends_on = [google_project_service.apis]
+
+  http_target {
+    uri         = "https://humanflourish.ing/tasks/retro-match/"
+    http_method = "POST"
+
+    oidc_token {
+      service_account_email = google_service_account.tasks.email
+      audience              = "https://humanflourish.ing"
+    }
+  }
+}
+
 # Backstop for receipt image deletion. Images are deleted as soon as extraction
 # finishes, so this should normally find nothing. Hourly rather than daily
 # because the published commitment is a hard 24 hours: a daily sweep that ran

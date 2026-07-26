@@ -452,6 +452,12 @@ class MatchConfig(models.Model):
         help_text="Candidates offered per item in the Tier 2 adjudication call. "
         "Set to 0 to disable adjudication entirely.",
     )
+    retro_batch_size = models.PositiveIntegerField(
+        default=500,
+        help_text="Line items re-examined per retro-matching run, per layer. "
+        "Retro-matching is never urgent, so a modest batch that always finishes "
+        "beats a large one that times out halfway.",
+    )
     prompt_budget = models.PositiveIntegerField(
         default=5,
         help_text="Maximum disambiguation prompts shown per receipt. Players "
@@ -517,6 +523,14 @@ class LineItemFields(models.Model):
         max_digits=10, decimal_places=2, null=True, blank=True
     )
     line_total = models.DecimalField(max_digits=10, decimal_places=2)
+    retro_checked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="When retro-matching last examined this line. Ordering by it "
+        "is what makes successive runs work through the backlog instead of "
+        "re-examining the same head of the queue forever.",
+    )
 
     class Meta:
         abstract = True
