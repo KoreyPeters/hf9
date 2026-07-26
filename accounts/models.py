@@ -40,7 +40,9 @@ class Membership(models.Model):
         (TIER_SUSTAINING, "Sustaining Member"),
     ]
 
-    player = models.OneToOneField(Player, on_delete=models.CASCADE, related_name="membership")
+    player = models.OneToOneField(
+        Player, on_delete=models.CASCADE, related_name="membership"
+    )
     started_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     is_active = models.BooleanField(default=True)
@@ -51,7 +53,9 @@ class Membership(models.Model):
 
 
 class EmailVerification(models.Model):
-    player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="email_verifications")
+    player = models.ForeignKey(
+        Player, on_delete=models.CASCADE, related_name="email_verifications"
+    )
     token_hash = models.CharField(max_length=64, unique=True)
     expires_at = models.DateTimeField()
     verified_at = models.DateTimeField(null=True, blank=True)
@@ -61,7 +65,9 @@ class EmailVerification(models.Model):
 
 
 class PasskeyCredential(models.Model):
-    player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="passkeys")
+    player = models.ForeignKey(
+        Player, on_delete=models.CASCADE, related_name="passkeys"
+    )
     credential_id = models.BinaryField(unique=True)
     public_key = models.BinaryField()
     sign_count = models.PositiveIntegerField(default=0)

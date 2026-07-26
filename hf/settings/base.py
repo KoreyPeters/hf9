@@ -88,7 +88,9 @@ CACHES = {
 }
 
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
+    },
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
@@ -258,4 +260,6 @@ SPENDIUM = {
 }
 
 MEMBER_MULTIPLIER: float = config("MEMBER_MULTIPLIER", default=1.5, cast=float)
-SUSTAINING_MEMBER_MULTIPLIER: float = config("SUSTAINING_MEMBER_MULTIPLIER", default=2.0, cast=float)
+SUSTAINING_MEMBER_MULTIPLIER: float = config(
+    "SUSTAINING_MEMBER_MULTIPLIER", default=2.0, cast=float
+)

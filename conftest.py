@@ -10,7 +10,9 @@ from surveys.models import SurveyResponse
 
 @pytest.fixture
 def player(db: None) -> Player:
-    p = Player.objects.create_user(username="testplayer", email="testplayer@example.com", password="pass")
+    p = Player.objects.create_user(
+        username="testplayer", email="testplayer@example.com", password="pass"
+    )
     Player.objects.filter(pk=p.pk).update(email_verified=True)
     p.refresh_from_db()
     return p
@@ -23,6 +25,8 @@ def mature_player(db: None, player: Player) -> Player:
     )
     ct = ContentType.objects.get_for_model(Player)
     for _ in range(3):
-        SurveyResponse.objects.create(player=player, content_type=ct, object_id=player.pk)
+        SurveyResponse.objects.create(
+            player=player, content_type=ct, object_id=player.pk
+        )
     player.refresh_from_db()
     return player

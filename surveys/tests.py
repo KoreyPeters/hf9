@@ -7,7 +7,13 @@ from django.utils import timezone
 
 from accounts.models import Player
 from points.models import PointTransaction
-from surveys.models import Category, Criterion, CriterionAnswer, SurveyConfig, SurveyResponse
+from surveys.models import (
+    Category,
+    Criterion,
+    CriterionAnswer,
+    SurveyConfig,
+    SurveyResponse,
+)
 from surveys.ratings import compute_rating
 from surveys.service import CoolDownError, check_cooldown, submit_survey
 
@@ -29,13 +35,18 @@ def survey_config(db: None) -> SurveyConfig:
 
 @pytest.fixture
 def criterion(db: None, polium_category: Category) -> Criterion:
-    return Criterion.objects.create(category=polium_category, question="Does X?", weight=1.0)
+    return Criterion.objects.create(
+        category=polium_category, question="Does X?", weight=1.0
+    )
 
 
 @pytest.fixture
 def candidate(db: None):
     from polium.models import Candidate, Jurisdiction
-    jurisdiction = Jurisdiction.objects.create(name="Test Jurisdiction", level="federal")
+
+    jurisdiction = Jurisdiction.objects.create(
+        name="Test Jurisdiction", level="federal"
+    )
     return Candidate.objects.create(
         name="Test Candidate", jurisdiction=jurisdiction, office="Senator"
     )
@@ -43,7 +54,9 @@ def candidate(db: None):
 
 def make_response(player: Player, subject: Player) -> SurveyResponse:
     ct = ContentType.objects.get_for_model(subject)
-    return SurveyResponse.objects.create(player=player, content_type=ct, object_id=subject.pk)
+    return SurveyResponse.objects.create(
+        player=player, content_type=ct, object_id=subject.pk
+    )
 
 
 @pytest.mark.django_db
@@ -53,11 +66,19 @@ def test_returns_none_with_no_responses(player: Player) -> None:
 
 @pytest.mark.django_db
 def test_correct_weighted_average(player: Player, polium_category: Category) -> None:
-    crit_heavy = Criterion.objects.create(category=polium_category, question="Q1?", weight=2.0)
-    crit_light = Criterion.objects.create(category=polium_category, question="Q2?", weight=1.0)
+    crit_heavy = Criterion.objects.create(
+        category=polium_category, question="Q1?", weight=2.0
+    )
+    crit_light = Criterion.objects.create(
+        category=polium_category, question="Q2?", weight=1.0
+    )
     response = make_response(player, player)
-    CriterionAnswer.objects.create(survey_response=response, criterion=crit_heavy, answer=True)
-    CriterionAnswer.objects.create(survey_response=response, criterion=crit_light, answer=False)
+    CriterionAnswer.objects.create(
+        survey_response=response, criterion=crit_heavy, answer=True
+    )
+    CriterionAnswer.objects.create(
+        survey_response=response, criterion=crit_light, answer=False
+    )
     result = compute_rating(player)
     assert result == pytest.approx(2.0 / 3.0)
 
@@ -67,7 +88,9 @@ def test_excludes_responses_older_than_365_days(
     player: Player, active_criterion: Criterion
 ) -> None:
     response = make_response(player, player)
-    CriterionAnswer.objects.create(survey_response=response, criterion=active_criterion, answer=True)
+    CriterionAnswer.objects.create(
+        survey_response=response, criterion=active_criterion, answer=True
+    )
     SurveyResponse.objects.filter(pk=response.pk).update(
         submitted_at=timezone.now() - timezone.timedelta(days=366)
     )
@@ -80,7 +103,9 @@ def test_excludes_inactive_criteria(player: Player, polium_category: Category) -
         category=polium_category, question="Inactive?", weight=1.0, is_active=False
     )
     response = make_response(player, player)
-    CriterionAnswer.objects.create(survey_response=response, criterion=inactive, answer=True)
+    CriterionAnswer.objects.create(
+        survey_response=response, criterion=inactive, answer=True
+    )
     assert compute_rating(player) is None
 
 
@@ -92,7 +117,9 @@ def test_returns_none_when_total_weight_is_zero(
         category=polium_category, question="Zero?", weight=0.0
     )
     response = make_response(player, player)
-    CriterionAnswer.objects.create(survey_response=response, criterion=zero_weight, answer=True)
+    CriterionAnswer.objects.create(
+        survey_response=response, criterion=zero_weight, answer=True
+    )
     assert compute_rating(player) is None
 
 
@@ -100,7 +127,9 @@ def test_returns_none_when_total_weight_is_zero(
 
 
 @pytest.mark.django_db
-def test_first_survey_no_cooldown(player: Player, candidate, survey_config: SurveyConfig) -> None:
+def test_first_survey_no_cooldown(
+    player: Player, candidate, survey_config: SurveyConfig
+) -> None:
     assert check_cooldown(player, candidate) is None
 
 
@@ -193,6 +222,7 @@ def test_cooldown_respects_config_value(
 
 # ── Survey points ─────────────────────────────────────────────────────────────
 
+
 @pytest.mark.django_db
 def test_first_survey_awards_100_points(
     player: Player, candidate, criterion: Criterion, survey_config: SurveyConfig
@@ -213,7 +243,9 @@ def test_second_survey_awards_50_points(
     )
     submit_survey(player, candidate, {criterion.pk: False})
     amounts = list(
-        PointTransaction.objects.filter(player=player).order_by("created_at").values_list("amount", flat=True)
+        PointTransaction.objects.filter(player=player)
+        .order_by("created_at")
+        .values_list("amount", flat=True)
     )
     assert amounts[0] == Decimal(str(survey_config.survey_points_first))
     assert amounts[1] == Decimal(str(survey_config.survey_points_second))
@@ -233,7 +265,9 @@ def test_third_survey_awards_25_points(
     )
     submit_survey(player, candidate, {criterion.pk: True})
     amounts = list(
-        PointTransaction.objects.filter(player=player).order_by("created_at").values_list("amount", flat=True)
+        PointTransaction.objects.filter(player=player)
+        .order_by("created_at")
+        .values_list("amount", flat=True)
     )
     assert amounts[2] == Decimal(str(survey_config.survey_points_subsequent))
 
@@ -248,9 +282,13 @@ def test_subsequent_surveys_all_award_25_points(
             submitted_at=timezone.now() - timedelta(days=31)
         )
     amounts = list(
-        PointTransaction.objects.filter(player=player).order_by("created_at").values_list("amount", flat=True)
+        PointTransaction.objects.filter(player=player)
+        .order_by("created_at")
+        .values_list("amount", flat=True)
     )
-    assert all(a == Decimal(str(survey_config.survey_points_subsequent)) for a in amounts[2:])
+    assert all(
+        a == Decimal(str(survey_config.survey_points_subsequent)) for a in amounts[2:]
+    )
 
 
 @pytest.mark.django_db

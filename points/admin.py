@@ -6,7 +6,14 @@ from .models import PointTransaction
 
 @admin.register(PointTransaction)
 class PointTransactionAdmin(admin.ModelAdmin):
-    list_display = ("player", "amount", "reason", "content_type", "object_id", "created_at")
+    list_display = (
+        "player",
+        "amount",
+        "reason",
+        "content_type",
+        "object_id",
+        "created_at",
+    )
     list_filter = ("reason",)
     readonly_fields = (
         "player",

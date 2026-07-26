@@ -1,12 +1,12 @@
 from typing import Any
 
-from django.conf import settings
 from django.db import models
-from sqids import Sqids
 
 
 class SqidMixin(models.Model):
-    sqid = models.CharField(max_length=20, unique=True, null=True, blank=True, db_index=True, default=None)
+    sqid = models.CharField(
+        max_length=20, unique=True, null=True, blank=True, db_index=True, default=None
+    )
 
     def generate_sqid(self) -> str:
         raise NotImplementedError(

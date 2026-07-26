@@ -17,13 +17,26 @@ from django.views.decorators.http import require_POST
 from core.maturity import account_is_mature
 from core.tasks import enqueue
 from evidence.models import Evidence, EvidenceFlag
-from evidence.service import AlreadyFlaggedError, NotMatureError, flag_evidence, submit_evidence, vote_usefulness
+from evidence.service import (
+    AlreadyFlaggedError,
+    NotMatureError,
+    flag_evidence,
+    submit_evidence,
+    vote_usefulness,
+)
 from surveys.models import Criterion, SurveyResponse
 from surveys.ratings import compute_declaration_points
 from surveys.service import CoolDownError, check_cooldown
 
 from . import service
-from .models import Candidate, Election, Jurisdiction, JurisdictionDuplicateFlag, JurisdictionFollow, VoteDeclaration
+from .models import (
+    Candidate,
+    Election,
+    Jurisdiction,
+    JurisdictionDuplicateFlag,
+    JurisdictionFollow,
+    VoteDeclaration,
+)
 
 _VALID_LEVELS = {"country", "province", "region", "city", "other"}
 
@@ -36,12 +49,22 @@ LEVEL_LABELS: dict[str, str] = {
 }
 
 
-def _elections_ctx(jurisdiction: Jurisdiction, show_form: bool = False, error: str = "") -> dict[str, object]:
+def _elections_ctx(
+    jurisdiction: Jurisdiction, show_form: bool = False, error: str = ""
+) -> dict[str, object]:
     today = date.today()
     return {
         "jurisdiction": jurisdiction,
-        "upcoming_elections": list(jurisdiction.elections.filter(election_date__gte=today).order_by("election_date")[:10]),
-        "past_elections": list(jurisdiction.elections.filter(election_date__lt=today).order_by("-election_date")[:5]),
+        "upcoming_elections": list(
+            jurisdiction.elections.filter(election_date__gte=today).order_by(
+                "election_date"
+            )[:10]
+        ),
+        "past_elections": list(
+            jurisdiction.elections.filter(election_date__lt=today).order_by(
+                "-election_date"
+            )[:5]
+        ),
         "elections_for_form": list(jurisdiction.elections.order_by("-election_date")),
         "is_active": jurisdiction.status == Jurisdiction.STATUS_ACTIVE,
         "show_form": show_form,
@@ -49,10 +72,14 @@ def _elections_ctx(jurisdiction: Jurisdiction, show_form: bool = False, error: s
     }
 
 
-def _candidates_ctx(jurisdiction: Jurisdiction, show_form: bool = False, error: str = "") -> dict[str, object]:
+def _candidates_ctx(
+    jurisdiction: Jurisdiction, show_form: bool = False, error: str = ""
+) -> dict[str, object]:
     return {
         "jurisdiction": jurisdiction,
-        "candidates": list(jurisdiction.candidates.order_by("is_blacklisted", "-current_rating")),
+        "candidates": list(
+            jurisdiction.candidates.order_by("is_blacklisted", "-current_rating")
+        ),
         "elections_for_form": list(jurisdiction.elections.order_by("-election_date")),
         "is_active": jurisdiction.status == Jurisdiction.STATUS_ACTIVE,
         "show_form": show_form,
@@ -66,7 +93,9 @@ def _get_descendant_ids(jurisdiction_id: int) -> set[int]:
     while queue:
         parent_id = queue.pop()
         child_ids = list(
-            Jurisdiction.objects.filter(parent_id=parent_id).values_list("id", flat=True)
+            Jurisdiction.objects.filter(parent_id=parent_id).values_list(
+                "id", flat=True
+            )
         )
         new_ids = [cid for cid in child_ids if cid not in all_ids]
         all_ids.update(new_ids)
@@ -83,10 +112,14 @@ def polium_home(request: HttpRequest) -> HttpResponse:
             .select_related("jurisdiction")
             .order_by("election_date")[:20]
         )
-        return render(request, "polium/home.html", {
-            "upcoming_elections": upcoming,
-            "state": "anonymous",
-        })
+        return render(
+            request,
+            "polium/home.html",
+            {
+                "upcoming_elections": upcoming,
+                "state": "anonymous",
+            },
+        )
 
     follows = list(
         request.user.followed_jurisdictions.select_related("jurisdiction").all()
@@ -103,17 +136,23 @@ def polium_home(request: HttpRequest) -> HttpResponse:
             jurisdiction_ids.add(follow.jurisdiction_id)
 
     upcoming = (
-        Election.objects.filter(election_date__gte=today, jurisdiction_id__in=jurisdiction_ids)
+        Election.objects.filter(
+            election_date__gte=today, jurisdiction_id__in=jurisdiction_ids
+        )
         .select_related("jurisdiction")
         .order_by("election_date")[:20]
     )
 
     state = "populated" if upcoming.exists() else "no_elections"
-    return render(request, "polium/home.html", {
-        "upcoming_elections": upcoming,
-        "followed_jurisdictions": [f.jurisdiction for f in follows],
-        "state": state,
-    })
+    return render(
+        request,
+        "polium/home.html",
+        {
+            "upcoming_elections": upcoming,
+            "followed_jurisdictions": [f.jurisdiction for f in follows],
+            "state": state,
+        },
+    )
 
 
 def jurisdiction_search(request: HttpRequest) -> DatastarResponse:
@@ -132,7 +171,9 @@ def jurisdiction_search(request: HttpRequest) -> DatastarResponse:
         {"results": results, "q": q},
         request=request,
     )
-    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#search-results"))
+    return DatastarResponse(
+        ServerSentEventGenerator.patch_elements(html, selector="#search-results")
+    )
 
 
 def jurisdiction_create_form(request: HttpRequest) -> DatastarResponse:
@@ -143,7 +184,9 @@ def jurisdiction_create_form(request: HttpRequest) -> DatastarResponse:
         {"name": name},
         request=request,
     )
-    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#search-results"))
+    return DatastarResponse(
+        ServerSentEventGenerator.patch_elements(html, selector="#search-results")
+    )
 
 
 def jurisdiction_search_parent(request: HttpRequest) -> DatastarResponse:
@@ -162,7 +205,9 @@ def jurisdiction_search_parent(request: HttpRequest) -> DatastarResponse:
         {"results": results},
         request=request,
     )
-    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#parent-results"))
+    return DatastarResponse(
+        ServerSentEventGenerator.patch_elements(html, selector="#parent-results")
+    )
 
 
 @login_required
@@ -178,7 +223,9 @@ def create_jurisdiction(request: HttpRequest) -> HttpResponse:
 
     parent = None
     if parent_sqid:
-        parent = Jurisdiction.objects.filter(sqid=parent_sqid, status=Jurisdiction.STATUS_ACTIVE).first()
+        parent = Jurisdiction.objects.filter(
+            sqid=parent_sqid, status=Jurisdiction.STATUS_ACTIVE
+        ).first()
 
     jurisdiction = Jurisdiction.objects.create(
         name=name,
@@ -233,8 +280,7 @@ def unfollow_jurisdiction(request: HttpRequest) -> HttpResponse:
 
 def _survey_ctx(request: HttpRequest, candidate: Candidate) -> dict[str, object]:
     criteria_qs = list(
-        Criterion.objects
-        .filter(is_active=True, category__game="polium")
+        Criterion.objects.filter(is_active=True, category__game="polium")
         .select_related("category")
         .order_by("category__name", "question")
     )
@@ -251,8 +297,9 @@ def _survey_ctx(request: HttpRequest, candidate: Candidate) -> dict[str, object]
             survey_state = "in_cooldown"
             ct = ContentType.objects.get_for_model(Candidate)
             latest = (
-                SurveyResponse.objects
-                .filter(player=request.user, content_type=ct, object_id=candidate.pk)
+                SurveyResponse.objects.filter(
+                    player=request.user, content_type=ct, object_id=candidate.pk
+                )
                 .order_by("-submitted_at")
                 .first()
             )
@@ -288,12 +335,15 @@ def candidate_detail(request: HttpRequest, sqid: str) -> HttpResponse:
     )
     blacklist_record = (
         candidate.blacklist_history.order_by("-blacklisted_at").first()
-        if candidate.is_blacklisted else None
+        if candidate.is_blacklisted
+        else None
     )
     elections_for_form: list[Election] = []
     if candidate.jurisdiction_id:
         elections_for_form = list(
-            Election.objects.filter(jurisdiction=candidate.jurisdiction).order_by("-election_date")
+            Election.objects.filter(jurisdiction=candidate.jurisdiction).order_by(
+                "-election_date"
+            )
         )
     ctx: dict[str, object] = {
         "candidate": candidate,
@@ -336,17 +386,24 @@ def evidence_flag(request: HttpRequest, pk: int) -> HttpResponse:
     try:
         flag_evidence(request.user, evidence, reason)
     except NotMatureError:
-        messages.error(request, "Your account must be at least 7 days old with 3 surveys submitted to flag evidence.")
+        messages.error(
+            request,
+            "Your account must be at least 7 days old with 3 surveys submitted to flag evidence.",
+        )
     except AlreadyFlaggedError:
         messages.error(request, "You have already flagged this evidence.")
     return redirect(request.META.get("HTTP_REFERER", "/"))
 
 
-def _candidate_election_ctx(candidate: Candidate, show_form: bool, error: str = "") -> dict[str, object]:
+def _candidate_election_ctx(
+    candidate: Candidate, show_form: bool, error: str = ""
+) -> dict[str, object]:
     elections_for_form: list[Election] = []
     if candidate.jurisdiction_id:
         elections_for_form = list(
-            Election.objects.filter(jurisdiction=candidate.jurisdiction).order_by("-election_date")
+            Election.objects.filter(jurisdiction=candidate.jurisdiction).order_by(
+                "-election_date"
+            )
         )
     return {
         "candidate": candidate,
@@ -363,7 +420,11 @@ def candidate_election_section(request: HttpRequest, sqid: str) -> DatastarRespo
         _candidate_election_ctx(candidate, show_form=False),
         request=request,
     )
-    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#candidate-election-section"))
+    return DatastarResponse(
+        ServerSentEventGenerator.patch_elements(
+            html, selector="#candidate-election-section"
+        )
+    )
 
 
 @login_required
@@ -374,7 +435,11 @@ def candidate_link_election_form(request: HttpRequest, sqid: str) -> DatastarRes
         _candidate_election_ctx(candidate, show_form=True),
         request=request,
     )
-    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#candidate-election-section"))
+    return DatastarResponse(
+        ServerSentEventGenerator.patch_elements(
+            html, selector="#candidate-election-section"
+        )
+    )
 
 
 @login_required
@@ -390,7 +455,9 @@ def candidate_link_election(request: HttpRequest, sqid: str) -> DatastarResponse
     if election_id_str:
         try:
             eid = int(election_id_str)
-            election = Election.objects.filter(pk=eid, jurisdiction=candidate.jurisdiction).first()
+            election = Election.objects.filter(
+                pk=eid, jurisdiction=candidate.jurisdiction
+            ).first()
             if election is None:
                 error = "Selected election does not belong to this jurisdiction."
         except ValueError:
@@ -402,7 +469,11 @@ def candidate_link_election(request: HttpRequest, sqid: str) -> DatastarResponse
             _candidate_election_ctx(candidate, show_form=True, error=error),
             request=request,
         )
-        return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#candidate-election-section"))
+        return DatastarResponse(
+            ServerSentEventGenerator.patch_elements(
+                html, selector="#candidate-election-section"
+            )
+        )
 
     candidate.election = election
     candidate.save(update_fields=["election"])
@@ -412,14 +483,19 @@ def candidate_link_election(request: HttpRequest, sqid: str) -> DatastarResponse
         _candidate_election_ctx(candidate, show_form=False),
         request=request,
     )
-    return DatastarResponse([
-        ServerSentEventGenerator.patch_elements(html, selector="#candidate-election-section"),
-        ServerSentEventGenerator.patch_signals({"candidate_election_id": ""}),
-    ])
+    return DatastarResponse(
+        [
+            ServerSentEventGenerator.patch_elements(
+                html, selector="#candidate-election-section"
+            ),
+            ServerSentEventGenerator.patch_signals({"candidate_election_id": ""}),
+        ]
+    )
 
 
 def _points_preview(candidate: Candidate) -> str:
     from django.conf import settings
+
     base = compute_declaration_points(candidate)
     if candidate.is_endorsed:
         mult = Decimal(str(settings.POLIUM["ENDORSED_MULTIPLIER"]))
@@ -434,6 +510,7 @@ def _points_preview(candidate: Candidate) -> str:
 def _below_threshold(candidate: Candidate) -> bool:
     """True when the candidate has survey responses but no criterion yet meets the k-threshold."""
     from django.utils import timezone
+
     ct = ContentType.objects.get_for_model(candidate)
     cutoff = timezone.now() - timedelta(days=365)
     has_responses = SurveyResponse.objects.filter(
@@ -444,7 +521,9 @@ def _below_threshold(candidate: Candidate) -> bool:
     return compute_declaration_points(candidate) == Decimal("0")
 
 
-def _candidates_with_info(candidates: list[Candidate]) -> list[tuple[Candidate, str, bool]]:
+def _candidates_with_info(
+    candidates: list[Candidate],
+) -> list[tuple[Candidate, str, bool]]:
     return [(c, _points_preview(c), _below_threshold(c)) for c in candidates]
 
 
@@ -467,7 +546,9 @@ def _declare_ctx(
 def election_detail(request: HttpRequest, sqid: str) -> HttpResponse:
     election = get_object_or_404(Election, sqid=sqid)
     candidates = list(
-        election.candidates.select_related("jurisdiction").order_by("is_blacklisted", "-current_rating")
+        election.candidates.select_related("jurisdiction").order_by(
+            "is_blacklisted", "-current_rating"
+        )
     )
     declaration: VoteDeclaration | None = None
     if request.user.is_authenticated:
@@ -477,12 +558,16 @@ def election_detail(request: HttpRequest, sqid: str) -> HttpResponse:
             .first()
         )
     today = date.today()
-    return render(request, "polium/election_detail.html", {
-        "election": election,
-        "candidates_with_preview": _candidates_with_info(candidates),
-        "declaration": declaration,
-        "today": today,
-    })
+    return render(
+        request,
+        "polium/election_detail.html",
+        {
+            "election": election,
+            "candidates_with_preview": _candidates_with_info(candidates),
+            "declaration": declaration,
+            "today": today,
+        },
+    )
 
 
 @login_required
@@ -493,7 +578,9 @@ def election_declare(request: HttpRequest, sqid: str) -> DatastarResponse:
     candidate_sqid = str(signals.get("candidate_sqid", "")).strip()
 
     candidates = list(
-        election.candidates.select_related("jurisdiction").order_by("is_blacklisted", "-current_rating")
+        election.candidates.select_related("jurisdiction").order_by(
+            "is_blacklisted", "-current_rating"
+        )
     )
 
     if not candidate_sqid:
@@ -504,10 +591,16 @@ def election_declare(request: HttpRequest, sqid: str) -> DatastarResponse:
         )
         html = render_to_string(
             "polium/partials/election_declare_section.html",
-            _declare_ctx(election, candidates, declaration, error="Please select a candidate."),
+            _declare_ctx(
+                election, candidates, declaration, error="Please select a candidate."
+            ),
             request=request,
         )
-        return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#election-declare-section"))
+        return DatastarResponse(
+            ServerSentEventGenerator.patch_elements(
+                html, selector="#election-declare-section"
+            )
+        )
 
     candidate = Candidate.objects.filter(sqid=candidate_sqid, election=election).first()
     if candidate is None:
@@ -518,10 +611,16 @@ def election_declare(request: HttpRequest, sqid: str) -> DatastarResponse:
         )
         html = render_to_string(
             "polium/partials/election_declare_section.html",
-            _declare_ctx(election, candidates, declaration, error="Invalid candidate selection."),
+            _declare_ctx(
+                election, candidates, declaration, error="Invalid candidate selection."
+            ),
             request=request,
         )
-        return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#election-declare-section"))
+        return DatastarResponse(
+            ServerSentEventGenerator.patch_elements(
+                html, selector="#election-declare-section"
+            )
+        )
 
     points_awarded: Decimal = service.declare_vote(request.user, candidate, election)
 
@@ -530,14 +629,20 @@ def election_declare(request: HttpRequest, sqid: str) -> DatastarResponse:
         .select_related("candidate")
         .first()
     )
-    awarded_str = str(points_awarded.quantize(Decimal("1"))) if points_awarded > 0 else None
+    awarded_str = (
+        str(points_awarded.quantize(Decimal("1"))) if points_awarded > 0 else None
+    )
 
     html = render_to_string(
         "polium/partials/election_declare_section.html",
         _declare_ctx(election, candidates, declaration, points_awarded=awarded_str),
         request=request,
     )
-    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#election-declare-section"))
+    return DatastarResponse(
+        ServerSentEventGenerator.patch_elements(
+            html, selector="#election-declare-section"
+        )
+    )
 
 
 def jurisdiction_detail(request: HttpRequest, sqid: str) -> HttpResponse:
@@ -550,10 +655,22 @@ def jurisdiction_detail(request: HttpRequest, sqid: str) -> HttpResponse:
         node = node.parent
 
     today = date.today()
-    children = list(jurisdiction.children.filter(status=Jurisdiction.STATUS_ACTIVE).order_by("name"))
-    upcoming = list(jurisdiction.elections.filter(election_date__gte=today).order_by("election_date")[:10])
-    past = list(jurisdiction.elections.filter(election_date__lt=today).order_by("-election_date")[:5])
-    candidates = list(jurisdiction.candidates.order_by("is_blacklisted", "-current_rating"))
+    children = list(
+        jurisdiction.children.filter(status=Jurisdiction.STATUS_ACTIVE).order_by("name")
+    )
+    upcoming = list(
+        jurisdiction.elections.filter(election_date__gte=today).order_by(
+            "election_date"
+        )[:10]
+    )
+    past = list(
+        jurisdiction.elections.filter(election_date__lt=today).order_by(
+            "-election_date"
+        )[:5]
+    )
+    candidates = list(
+        jurisdiction.candidates.order_by("is_blacklisted", "-current_rating")
+    )
     elections_for_form = list(jurisdiction.elections.order_by("-election_date"))
     is_active = jurisdiction.status == Jurisdiction.STATUS_ACTIVE
 
@@ -607,7 +724,9 @@ def jurisdiction_follow_detail(request: HttpRequest, sqid: str) -> DatastarRespo
         Jurisdiction.objects.filter(pk=jurisdiction.pk).update(
             active_engagement=F("active_engagement") + 1
         )
-    follow = JurisdictionFollow.objects.filter(player=request.user, jurisdiction=jurisdiction).first()
+    follow = JurisdictionFollow.objects.filter(
+        player=request.user, jurisdiction=jurisdiction
+    ).first()
     html = render_to_string(
         "polium/partials/follow_section.html",
         {
@@ -618,7 +737,9 @@ def jurisdiction_follow_detail(request: HttpRequest, sqid: str) -> DatastarRespo
         },
         request=request,
     )
-    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#follow-section"))
+    return DatastarResponse(
+        ServerSentEventGenerator.patch_elements(html, selector="#follow-section")
+    )
 
 
 @login_required
@@ -643,7 +764,9 @@ def jurisdiction_unfollow_detail(request: HttpRequest, sqid: str) -> DatastarRes
         },
         request=request,
     )
-    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#follow-section"))
+    return DatastarResponse(
+        ServerSentEventGenerator.patch_elements(html, selector="#follow-section")
+    )
 
 
 def elections_section(request: HttpRequest, sqid: str) -> DatastarResponse:
@@ -653,7 +776,9 @@ def elections_section(request: HttpRequest, sqid: str) -> DatastarResponse:
         _elections_ctx(jurisdiction, show_form=False),
         request=request,
     )
-    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#elections-section"))
+    return DatastarResponse(
+        ServerSentEventGenerator.patch_elements(html, selector="#elections-section")
+    )
 
 
 @login_required
@@ -664,7 +789,9 @@ def add_election_form(request: HttpRequest, sqid: str) -> DatastarResponse:
         _elections_ctx(jurisdiction, show_form=True),
         request=request,
     )
-    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#elections-section"))
+    return DatastarResponse(
+        ServerSentEventGenerator.patch_elements(html, selector="#elections-section")
+    )
 
 
 @login_required
@@ -688,10 +815,15 @@ def add_election(request: HttpRequest, sqid: str) -> DatastarResponse:
         except ValueError:
             error = "Invalid date. Use YYYY-MM-DD format."
 
-    if not error and Election.objects.filter(
-        jurisdiction=jurisdiction, name=name, election_date=election_date
-    ).exists():
-        error = "An election with this name and date already exists in this jurisdiction."
+    if (
+        not error
+        and Election.objects.filter(
+            jurisdiction=jurisdiction, name=name, election_date=election_date
+        ).exists()
+    ):
+        error = (
+            "An election with this name and date already exists in this jurisdiction."
+        )
 
     if error:
         html = render_to_string(
@@ -699,7 +831,9 @@ def add_election(request: HttpRequest, sqid: str) -> DatastarResponse:
             _elections_ctx(jurisdiction, show_form=True, error=error),
             request=request,
         )
-        return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#elections-section"))
+        return DatastarResponse(
+            ServerSentEventGenerator.patch_elements(html, selector="#elections-section")
+        )
 
     Election.objects.create(
         name=name,
@@ -713,10 +847,20 @@ def add_election(request: HttpRequest, sqid: str) -> DatastarResponse:
         _elections_ctx(jurisdiction, show_form=False),
         request=request,
     )
-    return DatastarResponse([
-        ServerSentEventGenerator.patch_elements(html, selector="#elections-section"),
-        ServerSentEventGenerator.patch_signals({"election_name": "", "election_date": "", "election_external_reference": ""}),
-    ])
+    return DatastarResponse(
+        [
+            ServerSentEventGenerator.patch_elements(
+                html, selector="#elections-section"
+            ),
+            ServerSentEventGenerator.patch_signals(
+                {
+                    "election_name": "",
+                    "election_date": "",
+                    "election_external_reference": "",
+                }
+            ),
+        ]
+    )
 
 
 def candidates_section(request: HttpRequest, sqid: str) -> DatastarResponse:
@@ -726,7 +870,9 @@ def candidates_section(request: HttpRequest, sqid: str) -> DatastarResponse:
         _candidates_ctx(jurisdiction, show_form=False),
         request=request,
     )
-    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#candidates-section"))
+    return DatastarResponse(
+        ServerSentEventGenerator.patch_elements(html, selector="#candidates-section")
+    )
 
 
 @login_required
@@ -737,7 +883,9 @@ def add_candidate_form(request: HttpRequest, sqid: str) -> DatastarResponse:
         _candidates_ctx(jurisdiction, show_form=True),
         request=request,
     )
-    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#candidates-section"))
+    return DatastarResponse(
+        ServerSentEventGenerator.patch_elements(html, selector="#candidates-section")
+    )
 
 
 @login_required
@@ -761,16 +909,23 @@ def add_candidate(request: HttpRequest, sqid: str) -> DatastarResponse:
     if not error and election_id_str:
         try:
             eid = int(election_id_str)
-            election = Election.objects.filter(pk=eid, jurisdiction=jurisdiction).first()
+            election = Election.objects.filter(
+                pk=eid, jurisdiction=jurisdiction
+            ).first()
             if election is None:
                 error = "Selected election does not belong to this jurisdiction."
         except ValueError:
             error = "Invalid election."
 
-    if not error and Candidate.objects.filter(
-        jurisdiction=jurisdiction, name=name, office=office
-    ).exists():
-        error = "A candidate with this name and office already exists in this jurisdiction."
+    if (
+        not error
+        and Candidate.objects.filter(
+            jurisdiction=jurisdiction, name=name, office=office
+        ).exists()
+    ):
+        error = (
+            "A candidate with this name and office already exists in this jurisdiction."
+        )
 
     if error:
         html = render_to_string(
@@ -778,7 +933,11 @@ def add_candidate(request: HttpRequest, sqid: str) -> DatastarResponse:
             _candidates_ctx(jurisdiction, show_form=True, error=error),
             request=request,
         )
-        return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#candidates-section"))
+        return DatastarResponse(
+            ServerSentEventGenerator.patch_elements(
+                html, selector="#candidates-section"
+            )
+        )
 
     Candidate.objects.create(
         name=name,
@@ -794,10 +953,22 @@ def add_candidate(request: HttpRequest, sqid: str) -> DatastarResponse:
         _candidates_ctx(jurisdiction, show_form=False),
         request=request,
     )
-    return DatastarResponse([
-        ServerSentEventGenerator.patch_elements(html, selector="#candidates-section"),
-        ServerSentEventGenerator.patch_signals({"candidate_name": "", "candidate_office": "", "candidate_election_id": "", "candidate_external_reference": "", "candidate_bio": ""}),
-    ])
+    return DatastarResponse(
+        [
+            ServerSentEventGenerator.patch_elements(
+                html, selector="#candidates-section"
+            ),
+            ServerSentEventGenerator.patch_signals(
+                {
+                    "candidate_name": "",
+                    "candidate_office": "",
+                    "candidate_election_id": "",
+                    "candidate_external_reference": "",
+                    "candidate_bio": "",
+                }
+            ),
+        ]
+    )
 
 
 @login_required
@@ -807,7 +978,11 @@ def flag_jurisdiction_duplicate(request: HttpRequest, sqid: str) -> DatastarResp
     is_active = jurisdiction.status == Jurisdiction.STATUS_ACTIVE
     is_mature = account_is_mature(request.user)
 
-    def _render(already_flagged: bool, flagged_target: Jurisdiction | None = None, error: str = "") -> DatastarResponse:
+    def _render(
+        already_flagged: bool,
+        flagged_target: Jurisdiction | None = None,
+        error: str = "",
+    ) -> DatastarResponse:
         html = render_to_string(
             "polium/partials/flag_section.html",
             {
@@ -820,21 +995,32 @@ def flag_jurisdiction_duplicate(request: HttpRequest, sqid: str) -> DatastarResp
             },
             request=request,
         )
-        return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#flag-section"))
+        return DatastarResponse(
+            ServerSentEventGenerator.patch_elements(html, selector="#flag-section")
+        )
 
     if not is_mature:
-        return _render(already_flagged=False, error="Your account must be at least 7 days old with 3 surveys submitted to flag.")
+        return _render(
+            already_flagged=False,
+            error="Your account must be at least 7 days old with 3 surveys submitted to flag.",
+        )
 
     signals = read_signals(request) or {}
     target_sqid = str(signals.get("flag_target_sqid", "")).strip()
 
     if not target_sqid:
-        return _render(already_flagged=False, error="Select a jurisdiction to flag as duplicate of.")
+        return _render(
+            already_flagged=False,
+            error="Select a jurisdiction to flag as duplicate of.",
+        )
 
     target = get_object_or_404(Jurisdiction, sqid=target_sqid)
 
     if target.pk == jurisdiction.pk:
-        return _render(already_flagged=False, error="Cannot flag a jurisdiction as a duplicate of itself.")
+        return _render(
+            already_flagged=False,
+            error="Cannot flag a jurisdiction as a duplicate of itself.",
+        )
 
     try:
         with transaction.atomic():
@@ -870,7 +1056,9 @@ def jurisdiction_search_flag(request: HttpRequest) -> DatastarResponse:
         {"results": results},
         request=request,
     )
-    return DatastarResponse(ServerSentEventGenerator.patch_elements(html, selector="#flag-results"))
+    return DatastarResponse(
+        ServerSentEventGenerator.patch_elements(html, selector="#flag-results")
+    )
 
 
 def privacy(request: HttpRequest) -> HttpResponse:
@@ -888,7 +1076,7 @@ def submit_survey(request: HttpRequest, sqid: str) -> DatastarResponse:
     for key, value in request.POST.items():
         if key.startswith("criterion_"):
             try:
-                cid = int(key[len("criterion_"):])
+                cid = int(key[len("criterion_") :])
                 answers[cid] = value == "yes"
             except ValueError:
                 pass
@@ -903,7 +1091,9 @@ def submit_survey(request: HttpRequest, sqid: str) -> DatastarResponse:
         )
 
     if not answers:
-        return _render({"error": "Please answer at least one question before submitting."})
+        return _render(
+            {"error": "Please answer at least one question before submitting."}
+        )
 
     try:
         _, points_awarded = svc_submit(request.user, candidate, answers)
@@ -916,11 +1106,7 @@ def submit_survey(request: HttpRequest, sqid: str) -> DatastarResponse:
     ctx = {"candidate": candidate, **_survey_ctx(request, candidate)}
     ctx["survey_state"] = "submitted"
     ctx["points_awarded"] = points_awarded
-    html = render_to_string(
-        "polium/partials/survey_section.html", ctx, request=request
-    )
+    html = render_to_string("polium/partials/survey_section.html", ctx, request=request)
     return DatastarResponse(
         ServerSentEventGenerator.patch_elements(html, selector="#survey-section")
     )
-
-

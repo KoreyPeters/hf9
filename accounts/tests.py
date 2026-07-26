@@ -9,6 +9,7 @@ from django.utils import timezone
 def player(db):
     from accounts.models import Player
     from accounts.utils import generate_username
+
     return Player.objects.create_user(
         username=generate_username(),
         email="test@example.com",
@@ -21,6 +22,7 @@ def player(db):
 def unverified_player(db):
     from accounts.models import Player
     from accounts.utils import generate_username
+
     p = Player.objects.create_user(
         username=generate_username(),
         email="unverified@example.com",
@@ -32,10 +34,12 @@ def unverified_player(db):
 
 # ── Magic link ────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.django_db
 def test_magic_link_url_contains_sesame_token(player, rf):
     from django.core import mail
     from accounts.magic import send_magic_link
+
     request = rf.get("/")
     request.META["SERVER_NAME"] = "testserver"
     request.META["SERVER_PORT"] = "80"
@@ -47,6 +51,7 @@ def test_magic_link_url_contains_sesame_token(player, rf):
 @pytest.mark.django_db
 def test_magic_link_logs_player_in(player, client):
     from sesame.utils import get_query_string
+
     token_qs = get_query_string(player)
     resp = client.get(f"/accounts/login/magic/{token_qs}")
     assert resp.status_code == 302
@@ -56,6 +61,7 @@ def test_magic_link_logs_player_in(player, client):
 @pytest.mark.django_db
 def test_magic_link_one_time_use(player, client):
     from sesame.utils import get_query_string
+
     token_qs = get_query_string(player)
     client.get(f"/accounts/login/magic/{token_qs}")
     client.logout()
@@ -67,6 +73,7 @@ def test_magic_link_one_time_use(player, client):
 @pytest.mark.django_db
 def test_magic_link_login_sets_email_verified(player, client):
     from sesame.utils import get_query_string
+
     assert player.email_verified is False
     token_qs = get_query_string(player)
     client.get(f"/accounts/login/magic/{token_qs}")
@@ -77,10 +84,12 @@ def test_magic_link_login_sets_email_verified(player, client):
 
 # ── Email verification ────────────────────────────────────────────────────────
 
+
 @pytest.mark.django_db
 def test_email_verification_sets_verified(player):
     from accounts.email_verification import verify_email_token
     from accounts.models import EmailVerification
+
     raw = "testtoken"
     EmailVerification.objects.create(
         player=player,
@@ -97,6 +106,7 @@ def test_email_verification_sets_verified(player):
 def test_email_verification_already_verified_raises(player):
     from accounts.email_verification import VerificationError, verify_email_token
     from accounts.models import EmailVerification
+
     raw = "testtoken2"
     EmailVerification.objects.create(
         player=player,
@@ -112,6 +122,7 @@ def test_email_verification_already_verified_raises(player):
 def test_email_verification_expired_raises(player):
     from accounts.email_verification import VerificationError, verify_email_token
     from accounts.models import EmailVerification
+
     raw = "testtoken3"
     EmailVerification.objects.create(
         player=player,
@@ -124,6 +135,7 @@ def test_email_verification_expired_raises(player):
 
 # ── Verification banner ───────────────────────────────────────────────────────
 
+
 @pytest.mark.django_db
 def test_unverified_player_sees_banner(unverified_player, client):
     client.force_login(unverified_player)
@@ -134,6 +146,7 @@ def test_unverified_player_sees_banner(unverified_player, client):
 @pytest.mark.django_db
 def test_verified_player_no_banner(client, player):
     from accounts.models import Player
+
     Player.objects.filter(pk=player.pk).update(email_verified=True)
     player.refresh_from_db()
     client.force_login(player)
@@ -143,10 +156,12 @@ def test_verified_player_no_banner(client, player):
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
 
+
 @pytest.mark.django_db
 def test_rate_limit_blocks_after_limit(rf):
     from django.core.cache import cache
     from accounts.ratelimit import check_rate_limit
+
     cache.clear()
     request = rf.get("/", REMOTE_ADDR="1.2.3.4")
     for _ in range(10):
@@ -157,6 +172,7 @@ def test_rate_limit_blocks_after_limit(rf):
 @pytest.mark.django_db
 def test_resend_verification_rate_limited(unverified_player, client):
     from django.core.cache import cache
+
     cache.clear()
     client.force_login(unverified_player)
     for _ in range(3):
@@ -167,17 +183,22 @@ def test_resend_verification_rate_limited(unverified_player, client):
 
 # ── Signup ────────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.django_db
 def test_signup_creates_player_with_unusable_password(client):
     from django.core.cache import cache
     from accounts.models import Player
+
     cache.clear()
-    resp = client.post("/accounts/signup/", {
-        "email": "new@example.com",
-        "display_name": "New Player",
-        "jurisdiction_country": "US",
-        "jurisdiction_region": "CA",
-    })
+    resp = client.post(
+        "/accounts/signup/",
+        {
+            "email": "new@example.com",
+            "display_name": "New Player",
+            "jurisdiction_country": "US",
+            "jurisdiction_region": "CA",
+        },
+    )
     assert resp.status_code == 302
     p = Player.objects.get(email="new@example.com")
     assert p.display_name == "New Player"
@@ -188,21 +209,27 @@ def test_signup_creates_player_with_unusable_password(client):
 @pytest.mark.django_db
 def test_signup_redirects_to_welcome(client):
     from django.core.cache import cache
+
     cache.clear()
-    resp = client.post("/accounts/signup/", {
-        "email": "welcome@example.com",
-        "display_name": "Welcome Player",
-    })
+    resp = client.post(
+        "/accounts/signup/",
+        {
+            "email": "welcome@example.com",
+            "display_name": "Welcome Player",
+        },
+    )
     assert resp.status_code == 302
     assert resp["Location"] == "/accounts/welcome/"
 
 
 # ── Verification reminder task ────────────────────────────────────────────────
 
+
 @pytest.mark.django_db
 def test_reminder_task_skips_verified_player(player):
     from django.core import mail
     from core.tasks import _registry
+
     Player = player.__class__
     Player.objects.filter(pk=player.pk).update(email_verified=True)
     _registry["verify-email-reminder"](player_id=player.pk)
@@ -214,6 +241,7 @@ def test_reminder_task_skips_outside_30_day_window(unverified_player):
     from django.core import mail
     from core.tasks import _registry
     from accounts.models import Player
+
     Player.objects.filter(pk=unverified_player.pk).update(
         date_joined=timezone.now() - timedelta(days=31)
     )
@@ -225,12 +253,14 @@ def test_reminder_task_skips_outside_30_day_window(unverified_player):
 def test_reminder_task_sends_for_unverified_player_within_window(unverified_player):
     from django.core import mail
     from core.tasks import _registry
+
     _registry["verify-email-reminder"](player_id=unverified_player.pk)
     assert len(mail.outbox) == 1
     assert mail.outbox[0].to == [unverified_player.email]
 
 
 # ── Player display label ───────────────────────────────────────────────────────
+
 
 @pytest.mark.django_db
 def test_display_label_format(player):
@@ -242,18 +272,23 @@ def test_display_label_format(player):
 def test_display_label_fallback_to_username(db):
     from accounts.models import Player
     from accounts.utils import generate_username
-    p = Player.objects.create_user(username=generate_username(), email="ndn@example.com", password=None)
+
+    p = Player.objects.create_user(
+        username=generate_username(), email="ndn@example.com", password=None
+    )
     assert p.display_name == ""
     assert p.display_label == f"{p.username} #{p.sqid[:4]}"
 
 
 def test_display_label_no_sqid():
     from accounts.models import Player
+
     p = Player(display_name="Jane", username="jane", sqid=None)
     assert p.display_label == "Jane"
 
 
 # ── Player profile page ────────────────────────────────────────────────────────
+
 
 @pytest.mark.django_db
 def test_player_profile_anonymous_returns_200(client, player):

@@ -10,7 +10,11 @@ class Jurisdiction(SqidMixin, LifecycleMixin):
     name = models.CharField(max_length=300)
     level = models.CharField(max_length=100)
     parent = models.ForeignKey(
-        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="children"
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="children",
     )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -124,7 +128,11 @@ class Candidate(SqidMixin):
     )
     office = models.CharField(max_length=200)
     election = models.ForeignKey(
-        Election, on_delete=models.SET_NULL, null=True, blank=True, related_name="candidates"
+        Election,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="candidates",
     )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

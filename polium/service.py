@@ -51,7 +51,9 @@ def declare_vote(player: Player, candidate: Candidate, election: Election) -> De
                 candidate=candidate,
                 election=election,
             )
-            awarded = award_points(player, new_points, "vote_declaration", source=declaration)
+            awarded = award_points(
+                player, new_points, "vote_declaration", source=declaration
+            )
             return awarded
 
         if declaration.candidate_id == candidate.pk:

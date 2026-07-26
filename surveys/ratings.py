@@ -51,8 +51,9 @@ def compute_declaration_points(subject: Model) -> Decimal:
         return Decimal("0")
 
     rows = (
-        CriterionAnswer.objects
-        .filter(survey_response__in=responses, criterion__is_active=True)
+        CriterionAnswer.objects.filter(
+            survey_response__in=responses, criterion__is_active=True
+        )
         .values("criterion_id", "answer")
         .annotate(n=Count("pk"))
     )
