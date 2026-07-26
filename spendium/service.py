@@ -1,6 +1,7 @@
 """Purchase lifecycle: recording, extraction, anonymisation, image expiry."""
 
-from datetime import timedelta
+import logging
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -23,6 +24,47 @@ from .models import (
     PurchaseLineItem,
     Store,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _enqueue_or_sweep(
+    url_path: str,
+    payload: dict[str, Any],
+    schedule_time: datetime | None = None,
+) -> None:
+    """Enqueue follow-up work whose caller has already done the work that counts.
+
+    Every call site here runs after the thing being protected is durable — the
+    purchase committed and the image stored, or the receipt read and the points
+    awarded. Raising at that point reports a loss that did not happen: the player
+    gets a 500 for an upload that succeeded, and their obvious next move,
+    uploading the photo again, is refused as a duplicate of the very row the
+    error told them did not exist. Inside `process_receipt` it is worse, because
+    that function is called in a loop by the sweep — one purchase whose task will
+    not queue would stop every other pending receipt from being read, which is
+    precisely the recovery path a queue outage depends on.
+
+    What makes absorbing it safe is that all three tasks have a scheduled sweep
+    behind them — `sweep-pending-receipts`, `sweep-purchase-anonymisation`,
+    `sweep-receipt-images` — and every one of those calls its handler directly
+    rather than re-enqueuing, so they still work when the queue does not. A
+    dropped task costs a delay well inside the window it serves, not the work.
+
+    Logged as an error because the 500 this replaces was also the alert: it fired
+    the platform's 5xx policy and mailed a traceback. Absorbing the failure
+    silently would buy the player's upload at the price of finding out from
+    players that receipts have been slow for a week.
+    """
+    try:
+        enqueue(url_path, payload, schedule_time=schedule_time)
+    except Exception:
+        logger.exception(
+            "Could not enqueue '%s' for purchase %s. The receipt is stored and "
+            "the scheduled sweep will pick it up.",
+            url_path,
+            payload.get("purchase_id"),
+        )
 
 
 def _resolve_store(store_name: str) -> Store | None:
@@ -162,8 +204,8 @@ def accept_upload(
     purchase.receipt_image.save(filename, ContentFile(image_bytes), save=False)
     purchase.save()
 
-    enqueue("process-receipt", {"purchase_id": purchase.pk})
-    enqueue(
+    _enqueue_or_sweep("process-receipt", {"purchase_id": purchase.pk})
+    _enqueue_or_sweep(
         "anonymise-purchase",
         {"purchase_id": purchase.pk},
         schedule_time=purchase.anonymise_after,
@@ -216,7 +258,7 @@ def process_receipt(purchase_id: int, client: Any | None = None) -> Purchase | N
         purchase.processing_status = Purchase.STATUS_FAILED
         purchase.processing_problems = [str(exc)]
         purchase.save(update_fields=["processing_status", "processing_problems"])
-        enqueue("delete-receipt-image", {"purchase_id": purchase.pk})
+        _enqueue_or_sweep("delete-receipt-image", {"purchase_id": purchase.pk})
         return purchase
 
     store = _resolve_store(receipt.store_name)
@@ -274,7 +316,7 @@ def process_receipt(purchase_id: int, client: Any | None = None) -> Purchase | N
     # Anonymisation is already scheduled from accept_upload — the retention
     # window runs from when the player handed over the receipt, not from when
     # we got round to reading it.
-    enqueue("delete-receipt-image", {"purchase_id": purchase.pk})
+    _enqueue_or_sweep("delete-receipt-image", {"purchase_id": purchase.pk})
     return purchase
 
 

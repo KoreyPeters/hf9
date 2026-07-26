@@ -68,6 +68,17 @@ LOGGING = {
             "level": "DEBUG",
             "propagate": False,
         },
+        # Failures the app handles rather than raising. `django.request` only
+        # covers what reaches Django as a 500, so anything we deliberately
+        # absorb — a task the queue would not take, say — leaves no trace beyond
+        # a console line nobody is reading. Deciding a failure should not reach
+        # the player is not the same as deciding nobody needs to know about it.
+        # ERROR and above only; the handler's own level enforces that.
+        "spendium": {
+            "handlers": ["console", "mail_admins"],
+            "level": "INFO",
+            "propagate": False,
+        },
     },
 }
 

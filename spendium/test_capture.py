@@ -9,10 +9,12 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import Membership, Player
+from core.tasks import _registry
 from spendium import service
 from spendium.models import Product, ProductAlias, Purchase, PurchaseLineItem, Store
 from spendium.test_extraction import (
@@ -79,6 +81,81 @@ def test_undecodable_image_is_refused(shopper: Player) -> None:
     """A correct content type does not make the bytes an image."""
     with pytest.raises(service.UnsupportedImageError):
         service.accept_upload(shopper, b"not an image", content_type="image/png")
+
+
+# ── A queue that will not take the task ───────────────────────────────────────
+#
+# Drawn from a real incident: the runtime service account could enqueue but
+# could not act as the account the task's OIDC token was minted for, so every
+# upload raised after the receipt had already been stored.
+
+
+@pytest.fixture
+def broken_queue(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise PermissionError("the queue would not take it")
+
+    monkeypatch.setattr(service, "enqueue", refuse)
+
+
+@pytest.mark.django_db
+def test_an_upload_survives_a_queue_that_will_not_take_the_task(
+    shopper: Player, broken_queue: None
+) -> None:
+    """The receipt is stored and committed before the task is enqueued, so
+    failing the request reports a loss that did not happen."""
+    purchase = service.accept_upload(shopper, png_bytes(), content_type="image/png")
+
+    assert purchase.pk is not None
+    assert purchase.processing_status == Purchase.STATUS_PENDING
+
+
+@pytest.mark.django_db
+def test_the_sweep_reads_a_receipt_whose_task_was_never_queued(
+    shopper: Player, fake_model, broken_queue: None
+) -> None:
+    """What makes absorbing the failure safe rather than merely quieter."""
+    fake_model(receipt_payload())
+    purchase = service.accept_upload(shopper, png_bytes(), content_type="image/png")
+
+    _registry["sweep-pending-receipts"]()
+
+    purchase.refresh_from_db()
+    assert purchase.processing_status == Purchase.STATUS_PROCESSED
+
+
+@pytest.mark.django_db
+def test_a_refused_task_is_still_reported(
+    shopper: Player, broken_queue: None, caplog
+) -> None:
+    """The 500 this replaces was also the alert. A queue refusing every task
+    must not be something we learn about from players."""
+    with caplog.at_level("ERROR", logger="spendium.service"):
+        service.accept_upload(shopper, png_bytes(), content_type="image/png")
+
+    assert [r for r in caplog.records if r.levelname == "ERROR"]
+    assert "process-receipt" in caplog.text
+
+
+@pytest.mark.django_db
+def test_the_upload_page_does_not_report_a_failure(
+    client, shopper: Player, broken_queue: None
+) -> None:
+    """What the player actually sees. The old 500 said the receipt was lost, and
+    their obvious next move — upload it again — was then refused as a duplicate
+    of the row they had just been told did not exist."""
+    Membership.objects.create(
+        player=shopper, expires_at=timezone.now() + timedelta(days=365)
+    )
+    client.force_login(shopper)
+
+    response = client.post(
+        reverse("spendium:receipt_upload"),
+        {"receipt": SimpleUploadedFile("r.png", png_bytes(), content_type="image/png")},
+    )
+
+    assert response.status_code == 302
+    assert Purchase.objects.filter(player=shopper).count() == 1
 
 
 # ── Duplicate detection ───────────────────────────────────────────────────────
