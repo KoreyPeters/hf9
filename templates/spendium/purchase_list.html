@@ -33,7 +33,12 @@
           </div>
         </td>
         <td style="padding:.75rem 0;text-align:right;vertical-align:top;white-space:nowrap;color:#374151">
-          {% if purchase.processing_status == "processed" %}{{ purchase.total }}{% endif %}
+          {% if purchase.processing_status == "processed" %}
+          {{ purchase.total }}
+          {% if purchase.points_awarded %}
+          <div style="font-size:.8rem;color:#047857">+{{ purchase.points_awarded }} pts</div>
+          {% endif %}
+          {% endif %}
         </td>
       </tr>
       {% endfor %}

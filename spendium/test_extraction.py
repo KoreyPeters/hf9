@@ -17,7 +17,7 @@ from django.utils import timezone
 from PIL import Image
 
 from accounts.models import Player
-from spendium import extraction, imaging, service
+from spendium import extraction, imaging, points, service
 from spendium.conftest import FakeClient
 from spendium.models import Product, ProductAlias, Purchase, PurchaseLineItem, Store
 
@@ -449,7 +449,7 @@ def test_negative_lines_are_identified_for_exclusion(
         total=3.00,
     )
     purchase = upload_and_process(shopper, fake_model(payload))
-    assert len(service.negative_line_total_ids(purchase)) == 1
+    assert len(points.negative_line_item_ids(purchase)) == 1
 
 
 # ── The image deletion commitment ─────────────────────────────────────────────

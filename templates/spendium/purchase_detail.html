@@ -10,6 +10,9 @@
     </h1>
     <p style="color:#6b7280;margin:.25rem 0 0">
       {{ purchase.purchased_at|date:"j F Y" }} &middot; {{ purchase.total }}
+      {% if purchase.points_awarded %}
+      &middot; <strong style="color:#047857">+{{ purchase.points_awarded }} points</strong>
+      {% endif %}
     </p>
     {% if purchase.window_is_open %}
     <p style="font-size:.8rem;color:#6b7280;margin:.5rem 0 0">

@@ -1,7 +1,6 @@
 """Purchase lifecycle: recording, extraction, anonymisation, image expiry."""
 
 from datetime import timedelta
-from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
@@ -13,7 +12,7 @@ from django.utils import timezone
 from core.tasks import enqueue
 from points.models import PointTransaction
 
-from . import adjudication, extraction, imaging, matching
+from . import adjudication, extraction, imaging, matching, points
 from .models import (
     AnonymisedLineItem,
     AnonymisedPurchase,
@@ -202,6 +201,11 @@ def process_receipt(purchase_id: int, client: Any | None = None) -> Purchase | N
 
     _adjudicate_residuals(purchase, results, client=client)
 
+    # Paid once the receipt has been read, not once it has been rated. Rating is
+    # a bonus on top; gating the purchase reward on it would withhold points the
+    # player has already earned.
+    points.award_for_purchase(purchase)
+
     # Anonymisation is already scheduled from accept_upload — the retention
     # window runs from when the player handed over the receipt, not from when
     # we got round to reading it.
@@ -376,20 +380,6 @@ def export_purchase_history(player: Any) -> list[dict[str, Any]]:
     return export
 
 
-def negative_line_total_ids(purchase: Purchase) -> list[int]:
-    """Line items that must not earn points.
-
-    Returns and same-receipt refunds appear as negative totals. They are
-    excluded from earning silently rather than subtracted, per the deliberate
-    decision not to chase return fraud at this stage.
-    """
-    return list(
-        purchase.line_items.filter(line_total__lt=Decimal("0")).values_list(
-            "pk", flat=True
-        )
-    )
-
-
 @atomic
 def anonymise_purchase(purchase_id: int) -> bool:
     """Move a purchase from the player-linked layer to the anonymous one.
@@ -444,10 +434,15 @@ def anonymise_purchase(purchase_id: int) -> bool:
     # the player's game history — but it must not point at basket detail.
     # object_id is a plain integer with no FK constraint, so a dangling value
     # would survive the delete and still name the purchase.
+    # The description is cleared alongside the reference. While the purchase
+    # existed it merely repeated what the purchase row already held; once the
+    # row is gone it would be the only surviving record of where and when
+    # somebody shopped, and years of those amount to a movement trace more
+    # revealing than the basket this whole step exists to destroy.
     PointTransaction.objects.filter(
         content_type=ContentType.objects.get_for_model(Purchase),
         object_id=purchase.pk,
-    ).update(content_type=None, object_id=None)
+    ).update(content_type=None, object_id=None, description="")
 
     purchase.delete()
     return True

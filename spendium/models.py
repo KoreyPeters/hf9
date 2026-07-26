@@ -603,6 +603,17 @@ class Purchase(models.Model):
         blank=True,
         related_name="purchases",
     )
+    METHOD_RECEIPT = "receipt"
+    METHOD_QR = "qr"
+    METHOD_SELF_REPORT = "self_report"
+    METHOD_ONLINE = "online"
+    METHOD_CHOICES = [
+        (METHOD_RECEIPT, "Receipt photo"),
+        (METHOD_QR, "QR code at the till"),
+        (METHOD_SELF_REPORT, "Self-reported"),
+        (METHOD_ONLINE, "Online order"),
+    ]
+
     processing_status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
@@ -610,6 +621,22 @@ class Purchase(models.Model):
         db_index=True,
         help_text="Extraction runs in a task, so a purchase exists before it "
         "has been read.",
+    )
+    verification_method = models.CharField(
+        max_length=20,
+        choices=METHOD_CHOICES,
+        default=METHOD_RECEIPT,
+        help_text="How the purchase was evidenced. Only the receipt path exists "
+        "so far; the others earn at a reduced rate when they are built, because "
+        "an unevidenced claim is worth less than a photographed till roll.",
+    )
+    points_awarded = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Set once, when the receipt is first read. Its presence is "
+        "what stops a reprocessed or re-matched purchase paying out twice.",
     )
     processing_problems = models.JSONField(
         default=list,

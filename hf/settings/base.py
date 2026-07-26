@@ -257,6 +257,19 @@ SPENDIUM = {
     # basket from sparse data, not about the number being meaningful.
     "PUBLISH_K": config("PUBLISH_K", default=10, cast=int),
     "PUBLISH_K_SENSITIVE": config("PUBLISH_K_SENSITIVE", default=25, cast=int),
+    # The floor on points per dollar, so participating always pays something
+    # even when nothing involved has been rated yet. A floor rather than a
+    # bonus: it is overtaken by real ratings rather than added to them, so it
+    # never inflates a mature payout or muddies the ethical signal.
+    "BASE_POINTS_PER_DOLLAR": config("BASE_POINTS_PER_DOLLAR", default="2"),
+    # How the purchase was evidenced. A photographed till roll is worth more
+    # than an unevidenced claim.
+    "VERIFICATION_MULTIPLIERS": {
+        "receipt": "1.0",
+        "qr": "1.0",
+        "self_report": "0.5",
+        "online": "0.5",
+    },
 }
 
 MEMBER_MULTIPLIER: float = config("MEMBER_MULTIPLIER", default=1.5, cast=float)

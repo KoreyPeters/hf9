@@ -46,7 +46,16 @@ class Criterion(models.Model):
         Category, on_delete=models.PROTECT, related_name="criteria"
     )
     question = models.TextField()
-    weight = models.DecimalField(max_digits=5, decimal_places=2, default=1.0)
+    weight = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=1.0,
+        help_text="What this criterion is worth, in points per dollar. Set by "
+        "the membership, not by engineering. The ceiling of 999.99 is kept "
+        "deliberately: it is not a limit on what members may decide, but a "
+        "point at which a proposal has to be argued for rather than merely "
+        "entered. Widen the column if that argument is ever won.",
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

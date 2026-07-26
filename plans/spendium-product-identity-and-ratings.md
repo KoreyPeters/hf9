@@ -596,16 +596,19 @@ reward.
 Deliberately after ratings, because the amount depends on a product's rating and
 a store's, and both need to exist first.
 
-- [ ] Points formula from the design: dollars × store rating, with a reduced
+- [x] Points formula from the design: dollars × store rating, with a reduced
   multiplier for self-reported and online purchases
-- [ ] Award once per purchase, at processing time, via the existing ledger
-- [ ] Negative line items earn nothing — already identified by
+  *(nothing surveys stores yet, so an unrated store earns at a configurable mid-scale
+  baseline. Zero would mean shopping anywhere new earned nothing; one would make the
+  rating irrelevant when it arrives.)*
+- [x] Award once per purchase, at processing time, via the existing ledger
+- [x] Negative line items earn nothing — already identified by
   `negative_line_total_ids`, never subtracted
-- [ ] Points survive anonymisation: the ledger entry keeps store, date and
+- [x] Points survive anonymisation: the ledger entry keeps store, date and
   amount, and loses its reference to the basket
-- [ ] Never re-award on retro-matching or reprocessing
-- [ ] Show points earned on the purchase page and in the receipt list
-- [ ] Tests: awarded once, unaffected by later matching, never gated on rating
+- [x] Never re-award on retro-matching or reprocessing
+- [x] Show points earned on the purchase page and in the receipt list
+- [x] Tests: awarded once, unaffected by later matching, never gated on rating
 
 ### Phase 10 — Action Centre
 
