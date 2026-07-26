@@ -146,6 +146,21 @@ AUTHENTICATION_BACKENDS = [
     "allauth.account.auth_backends.AuthenticationBackend",
 ]
 
+# Sessions. A year, and rolling: every request pushes the expiry back, so anyone
+# who opens the app even occasionally is never logged out. Django's fortnight
+# default suits a site people visit deliberately, and this is the opposite —
+# scanning a receipt is a ten-second errand, and a login screen in front of it is
+# enough friction to lose the scan. The cookie is already Secure, HttpOnly and
+# SameSite=Lax in prod, which is what keeps a long life from being a long
+# exposure; logging out still deletes the session server-side.
+#
+# The cost is a session write per request rather than per login, which on SQLite
+# means a row rewritten on every authenticated page view. Small, but it lands on
+# a single-writer database, so it is the first thing to look at if write
+# contention ever shows up.
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 365
+SESSION_SAVE_EVERY_REQUEST = True
+
 # django-sesame — magic link tokens
 SESAME_MAX_AGE = 900
 SESAME_ONE_TIME = True
