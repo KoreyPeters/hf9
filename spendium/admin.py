@@ -5,6 +5,7 @@ from django.http import HttpRequest
 from . import abuse, catalogue
 from .models import (
     AnonymisedLineItem,
+    EmergencyStop,
     MetricsSnapshot,
     AnonymisedPurchase,
     Manufacturer,
@@ -42,9 +43,51 @@ class ManufacturerAdmin(admin.ModelAdmin):
     readonly_fields = ["sqid", "created_at"]
 
 
+@admin.register(EmergencyStop)
+class EmergencyStopAdmin(admin.ModelAdmin):
+    """The one control somebody unfamiliar with the system needs to find.
+
+    A singleton, so it cannot be added or deleted — there is exactly one row and
+    the changelist goes straight to it. Everything about the presentation is
+    aimed at somebody who arrived here in a hurry.
+    """
+
+    list_display = ["__str__", "stopped_at", "stopped_by", "note"]
+    readonly_fields = ["stopped_at", "stopped_by"]
+    fields = ["is_stopped", "note", "stopped_at", "stopped_by"]
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return not EmergencyStop.objects.exists()
+
+    def has_delete_permission(self, request: HttpRequest, obj: object = None) -> bool:
+        return False
+
+    def changelist_view(self, request: HttpRequest, extra_context=None):
+        # Make sure the row exists, so the list is never empty for somebody
+        # looking for the switch under pressure.
+        EmergencyStop.get()
+        return super().changelist_view(request, extra_context)
+
+    def save_model(self, request: HttpRequest, obj, form, change) -> None:
+        """Record who stopped it, without asking them to fill it in.
+
+        The person pulling this has enough to think about, and whoever asks
+        afterwards will want to know. The model stamps and clears `stopped_at`
+        itself, so only the one fact a request knows is added here.
+        """
+        if obj.is_stopped and obj.stopped_at is None:
+            obj.stopped_by = request.user
+        super().save_model(request, obj, form, change)
+
+
 @admin.register(MatchConfig)
 class MatchConfigAdmin(admin.ModelAdmin):
-    """Singleton. Thresholds are calibration and change as real data arrives."""
+    """Singleton. Thresholds are calibration and change as real data arrives.
+
+    Not the emergency stop. `adjudication_candidates = 0` disables Tier 2 only,
+    which is the narrow control for when adjudication specifically is costing too
+    much. To stop all AI spending, use Emergency stop.
+    """
 
     def has_add_permission(self, request: HttpRequest) -> bool:
         return not MatchConfig.objects.exists()

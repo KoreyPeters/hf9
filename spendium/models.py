@@ -435,6 +435,84 @@ class ProductRatingSnapshot(models.Model):
         return f"{self.product.canonical_name} @ {self.taken_on}: {self.score}"
 
 
+class EmergencyStop(models.Model):
+    """The one control that stops Spendium spending money.
+
+    Written for somebody's first day. They have been told the bill is running
+    away, they are the only person available, and they should not need to know
+    what a "tier" is or which model holds the setting. So: one checkbox, named
+    for the situation rather than the mechanism, and it stops **everything** —
+    extraction and adjudication alike.
+
+    Stopping the narrower thing would be worse than useless. Adjudication only
+    runs on the residual that exact and fuzzy matching miss, whereas extraction
+    runs on every uploaded receipt, so pausing Tier 2 alone would look like
+    pulling the switch and watching the meter keep spinning.
+
+    Uploads are still accepted and still queued; receipts are simply not read
+    until it is switched off, at which point a sweeper picks up everything that
+    waited.
+
+    That holds for a stop shorter than the image retention window. Receipt
+    images are deleted 24 hours after upload no matter what — the commitment is
+    published and an outage is the worst possible reason to quietly hold player
+    photos longer — so a receipt uploaded into a stop that outlives it has no
+    image left to read and fails. Once the stop has been on that long, new
+    uploads are refused at the door rather than accepted and destroyed, and a
+    failed receipt can always be uploaded again.
+    """
+
+    is_stopped = models.BooleanField(
+        default=False,
+        verbose_name="Stop all AI spending now",
+        help_text=(
+            "Tick this to stop Spendium calling any AI model. Receipts already "
+            "uploaded stay safe and unread until you untick it, and are then "
+            "processed automatically — nothing is lost and no player loses "
+            "points. Untick to resume."
+        ),
+    )
+    stopped_at = models.DateTimeField(null=True, blank=True)
+    stopped_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    note = models.CharField(
+        max_length=300,
+        blank=True,
+        help_text="Optional: what made you stop it. Useful to whoever asks later.",
+    )
+
+    class Meta:
+        verbose_name = "Emergency stop"
+        verbose_name_plural = "Emergency stop"
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        # `stopped_at` is maintained here rather than in the admin because it is
+        # no longer only for attribution: how long the stop has been on decides
+        # whether uploads are still accepted. A stop pulled from a shell or a
+        # test has to carry the same timestamp as one pulled from the admin.
+        self.pk = 1
+        if self.is_stopped:
+            if self.stopped_at is None:
+                self.stopped_at = timezone.now()
+        else:
+            self.stopped_at = None
+            self.stopped_by = None
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get(cls) -> "EmergencyStop":
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def __str__(self) -> str:
+        return "STOPPED — no AI spending" if self.is_stopped else "Running normally"
+
+
 class MetricsSnapshot(models.Model):
     """One day's measurements, so convergence can be told from stagnation.
 

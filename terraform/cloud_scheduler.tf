@@ -66,6 +66,33 @@ resource "google_cloud_scheduler_job" "sweep_purchase_anonymisation" {
   }
 }
 
+# Reads receipts still waiting. Covers two cases with one sweep: uploads that
+# waited out an emergency stop, and uploads whose original task was dropped.
+# Runs every fifteen minutes because the second case is a player watching a
+# receipt say "still reading" — while the stop is on it does nothing, since
+# processing returns early, so it is safe to leave on this cadence throughout
+# an incident.
+resource "google_cloud_scheduler_job" "sweep_pending_receipts" {
+  name             = "hf-sweep-pending-receipts"
+  project          = var.project
+  region           = var.region
+  schedule         = "*/15 * * * *"
+  time_zone        = "UTC"
+  attempt_deadline = "900s"
+
+  depends_on = [google_project_service.apis]
+
+  http_target {
+    uri         = "https://humanflourish.ing/tasks/sweep-pending-receipts/"
+    http_method = "POST"
+
+    oidc_token {
+      service_account_email = google_service_account.tasks.email
+      audience              = "https://humanflourish.ing"
+    }
+  }
+}
+
 # Convergence metrics. Recorded daily rather than derived on demand, because
 # the claim they exist to test is that the system improves without curation —
 # and a rate computed once says nothing about whether it is moving.

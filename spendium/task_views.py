@@ -20,6 +20,18 @@ def sweep_purchase_anonymisation() -> None:
         service.anonymise_purchase(purchase_id)
 
 
+@task("sweep-pending-receipts")
+def sweep_pending_receipts() -> None:
+    """Read receipts that are still waiting.
+
+    Picks up whatever waited out an emergency stop, and whatever lost its
+    original task. Does nothing while the stop is on, since process_receipt
+    returns early — so this can run on its normal schedule throughout.
+    """
+    for purchase_id in service.pending_purchase_ids():
+        service.process_receipt(purchase_id)
+
+
 @task("snapshot-metrics")
 def snapshot_metrics() -> None:
     """Record today's convergence numbers, platform-wide and per store.

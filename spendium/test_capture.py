@@ -95,6 +95,24 @@ def test_the_same_receipt_twice_is_refused(shopper: Player, fake_model) -> None:
 
 
 @pytest.mark.django_db
+def test_a_receipt_that_failed_can_be_uploaded_again(
+    shopper: Player, fake_model
+) -> None:
+    """Nothing was extracted from a failed purchase, so there is nothing to
+    double-count — and blocking it strands the player for the full 90-day
+    lookback over a receipt we never managed to read."""
+    fake_model(receipt_payload())
+    image = image_bytes_from(patterned_image())
+    purchase = service.accept_upload(shopper, image, content_type="image/png")
+    Purchase.objects.filter(pk=purchase.pk).update(
+        processing_status=Purchase.STATUS_FAILED
+    )
+
+    again = service.accept_upload(shopper, image, content_type="image/png")
+    assert again.pk != purchase.pk
+
+
+@pytest.mark.django_db
 def test_a_rescaled_photo_of_one_receipt_is_still_a_duplicate(
     shopper: Player, fake_model
 ) -> None:

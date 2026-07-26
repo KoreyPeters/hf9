@@ -225,6 +225,7 @@ def receipt_upload(request: HttpRequest) -> HttpResponse:
             except (
                 service.DuplicateReceiptError,
                 service.UnsupportedImageError,
+                service.UploadsPausedError,
             ) as exc:
                 error = str(exc)
             else:

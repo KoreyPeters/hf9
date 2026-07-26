@@ -827,20 +827,86 @@ and the more likely thing to be running away. Setting
 pulling the switch and watching the meter keep spinning, which is worse than
 having no switch at all.
 
-- [ ] A single obvious control that stops **all** model spending: extraction and
-  adjudication together, not just Tier 2.
-- [ ] Reachable from the admin index without knowing which model holds it.
-  Named for the situation, not the mechanism — the person looking for it is
-  searching for "stop", not for "MatchConfig".
-- [ ] States plainly what happens while it is on: uploads are still accepted and
-  still queued, receipts are simply not read until it is switched off. Nothing
-  is lost, no player data is discarded, and no points are wrongly awarded
-  because unprocessed receipts never reach the points step.
-- [ ] Equally obvious to switch back off, and says who turned it on and when —
-  the panicked hire should not also be the person who has to explain it later.
-- [ ] Queued receipts resume when it is cleared, rather than needing a manual
-  re-run.
-- [ ] Tests: with it on, no model client is constructed by any path — upload,
-  reprocessing, or retro-matching.
-- [ ] Consider a second, narrower control for adjudication alone, since that is
-  the one whose cost scales with catalogue immaturity rather than with usage.
+- [x] A single obvious control that stops **all** model spending: extraction and
+  adjudication together, not just Tier 2. `EmergencyStop`, a singleton model
+  with one tickbox, enforced by `spending.guard()` inside every `_client()` —
+  the only place money is actually committed, and a choke point both callers
+  pass through. Guarding anywhere earlier would leave a path open the day
+  somebody adds a third caller.
+- [x] Reachable from the admin index without knowing which model holds it.
+  Named "Emergency stop" and the field reads "Stop all AI spending now", so it
+  matches what somebody would scan for.
+- [x] States plainly what happens while it is on, in the field's own help text
+  rather than in documentation nobody will find during an incident.
+- [x] Equally obvious to switch back off, and records who turned it on and when.
+  Cleared on switch-off, so the attribution always describes the current state
+  rather than an incident from six months ago.
+- [x] Queued receipts resume when it is cleared. `sweep-pending-receipts` runs
+  every fifteen minutes and reads whatever is still pending.
+- [x] Tests: 23 in `test_emergency_stop.py`, organised around the first-day
+  scenario — it stops everything, nothing is lost, resuming needs no further
+  intervention, and a long outage degrades honestly.
+- [x] The narrower control for adjudication alone survives unchanged:
+  `MatchConfig.adjudication_candidates = 0` still disables Tier 2 on its own.
+
+**A stop that outlives the image retention window.**
+
+Found by walking a five-day outage through the code after the phase was
+otherwise complete. Queueing makes a *short* stop invisible to players. It
+cannot do the same for a long one, because receipt images are deleted 24 hours
+after upload regardless — `sweep-receipt-images` is a separate hourly job that
+calls no model, has no stop check, and filters on age alone. So the published
+commitment held, but every receipt uploaded into the stop lost its image, failed
+on resume, and — worst of all — could not be re-submitted, because
+`find_duplicate` matched the surviving perceptual hash for the full 90-day
+lookback. A five-day outage silently destroyed five days of receipts and locked
+the players out of retrying them.
+
+Extending retention during an outage was rejected outright. The 24 hours is
+published, and an outage is the worst possible reason to quietly hold player
+photos longer.
+
+- [x] `find_duplicate` excludes failed purchases. Nothing was extracted from
+  one, so there is nothing to double-count, and treating it as a duplicate
+  strands the player over a receipt we never read. This was a live bug
+  independent of the kill switch: **any** receipt that failed for any reason was
+  unresubmittable for 90 days.
+- [x] `spending.uploads_paused()` — once the stop has been on longer than the
+  retention window, `accept_upload` refuses before anything is stored. The
+  player keeps their photo and their receipt instead of handing us something we
+  will bin unread. A short stop still accepts normally, which is the whole point
+  of queueing.
+- [x] `stopped_at` moved from the admin's `save_model` into `EmergencyStop.save`.
+  It is no longer only attribution — it decides whether uploads are accepted —
+  so a stop pulled from a shell or a test has to carry the same timestamp as one
+  pulled from the admin. The admin still records `stopped_by`.
+- [x] The failure message rewritten as an action ("Please upload it again if you
+  still have it"), which is only honest now that re-uploading actually works.
+- [x] Both fixes mutation-tested: un-excluding failed purchases and hardcoding
+  `uploads_paused` to `False` each fail the tests written for them.
+
+Residual, accepted: a receipt uploaded in the *first* 24 hours of a stop that
+then runs for days still loses its image and fails. It cannot be known at upload
+time how long an outage will last, and refusing every upload during a two-minute
+blip would cost players more than it saves. The failure is now recoverable —
+they can upload it again — which is what makes it acceptable rather than silent.
+
+No change to the privacy page: the 24-hour commitment is unchanged, and it is
+now enforced through an outage as well.
+
+**Deviations.**
+
+- `process_receipt` checks `is_stopped()` itself, ahead of the client guard,
+  rather than relying on the guard to raise. Letting the exception propagate
+  would mark the receipt **failed** — and a failed receipt is gone, with its
+  image already deleted, so the player may be unable to re-upload it. Returning
+  early leaves it **pending**, which is what makes the stop safe to pull.
+- `sweep-pending-receipts` was scheduled unconditionally rather than triggered
+  on switch-off. It costs nothing while the stop is on (processing returns
+  early), and it independently fixes a gap that predates this phase: a dropped
+  Cloud Task previously left a receipt pending forever with nothing watching.
+- The guard is verified by parsing `extraction.py` and `adjudication.py` rather
+  than by calling `_client()`. The autouse fixture that keeps tests off the
+  network replaces `_client` itself, so a direct call would exercise the fixture
+  and pass whether or not the guard existed. The end-to-end test is the real
+  proof that nothing is spent; the source check catches a future third caller.

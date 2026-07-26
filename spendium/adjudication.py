@@ -160,6 +160,10 @@ def parse_response(payload: str | dict[str, Any]) -> list[Adjudication]:
 def _client() -> Any:
     from google import genai
 
+    from . import spending
+
+    spending.guard()
+
     return genai.Client(
         vertexai=True,
         project=settings.GCP_PROJECT,

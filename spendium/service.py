@@ -12,7 +12,7 @@ from django.utils import timezone
 from core.tasks import enqueue
 from points.models import PointTransaction
 
-from . import abuse, adjudication, extraction, imaging, matching, points
+from . import abuse, adjudication, extraction, imaging, matching, points, spending
 from .models import (
     AnonymisedLineItem,
     AnonymisedPurchase,
@@ -40,6 +40,11 @@ def _resolve_store(store_name: str) -> Store | None:
     return existing or Store.objects.create(name=name)
 
 
+class UploadsPausedError(RuntimeError):
+    """Receipt reading is stopped, and has been long enough that anything
+    accepted now would be deleted before it could be read."""
+
+
 class DuplicateReceiptError(RuntimeError):
     """This player has already uploaded a photo of this receipt."""
 
@@ -57,13 +62,20 @@ def find_duplicate(player: Any, phash: str) -> Purchase | None:
 
     Scoped to the uploading player. Two people can legitimately buy the same
     things at the same shop, and a global check would punish them for it.
+
+    Failed purchases are excluded. Nothing was extracted from them, so there is
+    nothing to double-count, and treating one as a duplicate locks the player
+    out of re-submitting a receipt we never managed to read — for the full
+    lookback window, which is far longer than the image survives.
     """
     threshold: int = settings.SPENDIUM["DUPLICATE_HASH_DISTANCE"]
     lookback: int = settings.SPENDIUM["DUPLICATE_LOOKBACK_DAYS"]
     cutoff = timezone.now() - timedelta(days=lookback)
 
-    recent = Purchase.objects.filter(player=player, created_at__gte=cutoff).exclude(
-        image_phash=""
+    recent = (
+        Purchase.objects.filter(player=player, created_at__gte=cutoff)
+        .exclude(image_phash="")
+        .exclude(processing_status=Purchase.STATUS_FAILED)
     )
     for candidate in recent:
         try:
@@ -91,6 +103,15 @@ def accept_upload(
     of the image that outlives the 24-hour deletion window. Losing it would
     disable duplicate detection permanently.
     """
+    if spending.uploads_paused():
+        # Checked before anything is stored. Accepting a receipt we can already
+        # tell we will delete unread would cost the player their photo as well
+        # as their receipt.
+        raise UploadsPausedError(
+            "We are not able to read receipts at the moment. Please keep this "
+            "one and upload it again later — nothing has been recorded."
+        )
+
     max_bytes: int = settings.SPENDIUM["MAX_UPLOAD_BYTES"]
     if len(image_bytes) > max_bytes:
         raise UnsupportedImageError(
@@ -138,9 +159,24 @@ def process_receipt(purchase_id: int, client: Any | None = None) -> Purchase | N
     if purchase is None or purchase.processing_status != Purchase.STATUS_PENDING:
         return None
 
+    if spending.is_stopped():
+        # Checked here, not left to the client guard, so the receipt stays
+        # pending instead of being marked failed. A failed receipt is gone and
+        # the player must upload it again; a pending one just waits for the
+        # sweeper. That difference is what makes the stop safe to pull.
+        return None
+
     if not purchase.receipt_image:
+        # Reachable when a receipt waited past the 24-hour image deletion — a
+        # long emergency stop, or a task lost for a day. Worded as an action
+        # because re-uploading now works: failed purchases are excluded from
+        # duplicate detection.
         purchase.processing_status = Purchase.STATUS_FAILED
-        purchase.processing_problems = ["The uploaded image is no longer available."]
+        purchase.processing_problems = [
+            "We did not manage to read this receipt before its photo was "
+            "deleted, as we promise to do within 24 hours. Please upload it "
+            "again if you still have it."
+        ]
         purchase.save(update_fields=["processing_status", "processing_problems"])
         return purchase
 
@@ -462,6 +498,21 @@ def due_purchase_ids() -> list[int]:
     """
     return list(
         Purchase.objects.filter(anonymise_after__lte=timezone.now()).values_list(
+            "pk", flat=True
+        )
+    )
+
+
+def pending_purchase_ids() -> list[int]:
+    """Uploads still waiting to be read.
+
+    Covers two cases with one sweep: receipts that waited out an emergency stop,
+    and receipts whose `process-receipt` task was simply dropped. Before this
+    existed the second case meant a receipt sat pending forever with nothing
+    watching.
+    """
+    return list(
+        Purchase.objects.filter(processing_status=Purchase.STATUS_PENDING).values_list(
             "pk", flat=True
         )
     )

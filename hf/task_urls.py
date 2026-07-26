@@ -47,6 +47,11 @@ urlpatterns = [
         name="task_recompute_hotness",
     ),
     path(
+        "sweep-pending-receipts/",
+        spendium_task_views.sweep_pending_receipts,
+        name="task_sweep_pending_receipts",
+    ),
+    path(
         "snapshot-metrics/",
         spendium_task_views.snapshot_metrics,
         name="task_snapshot_metrics",
