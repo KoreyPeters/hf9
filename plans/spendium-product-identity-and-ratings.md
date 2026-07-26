@@ -638,3 +638,101 @@ the upload path they guard is built.)
   anonymisation time
 - [ ] Update `local_only/todo.md` — product ratings no longer Stage 5 deferred
 - [ ] Confirm the privacy policy still matches actual behaviour before launch
+
+### Phase 13 — Review and hardening
+
+A deliberate pass over everything built, before any of it meets a real player.
+Twelve phases produced roughly forty modules and fifteen migrations in one app,
+written in sequence and largely reviewed only against the phase in front of it.
+The point of this phase is to look at the result *as a whole*, which nothing so
+far has done.
+
+Where a check names a specific suspect, that is something already noticed in
+passing rather than a hypothetical.
+
+#### Security, authorisation and privacy
+
+The highest-value section, because Spendium holds financial documents and the
+privacy posture is published rather than internal.
+
+- [ ] Enumerate every view and state its intended audience: public, any player,
+  the owning player, or members only. Then verify each against its decorators.
+  `product_detail` is deliberately public; almost nothing else is.
+- [ ] Confirm every purchase-scoped lookup filters on `player=request.user`.
+  Purchases use sequential primary keys, so that filter is the *only* thing
+  standing between a guessed id and someone else's basket.
+- [ ] Audit the published privacy policy line by line against actual behaviour:
+  24-hour image deletion, 30-day anonymisation, purchase history visible and
+  deletable, export on request. Each is a commitment, not a feature.
+- [ ] Check what survives anonymisation from every direction — ledger entries,
+  aliases, ratings, snapshots, the Action Centre — not just the paths that had
+  tests written for them.
+- [ ] Confirm the task endpoints reject unauthenticated calls in production. The
+  OIDC check is skipped under DEBUG, so it has never actually run in anger.
+- [ ] Review admin for anything exposing player-linked purchase data more
+  broadly than intended.
+- [ ] Justify or remove `@csrf_exempt` on the waitlist `notify` view.
+
+#### Simplicity and dead code
+
+- [ ] Remove helpers written for callers that never arrived. Confirmed unused:
+  `catalogue.resolve_ratings_subject`, `ratings.rateable_products`,
+  `action_centre.product_rating_for`.
+- [ ] Revisit `Purchase.verification_method`: four choices, one reachable. Keep
+  only if the QR and self-report paths are genuinely coming.
+- [ ] Revisit `flag_count` returning 0 on `Store` and `Manufacturer` — inert
+  stubs satisfying an abstract property nothing calls.
+- [ ] Reassess the module boundaries. `service`, `points`, `ratings`,
+  `catalogue`, `action_centre`, `matching`, `retro` grew one phase at a time and
+  the seams may no longer be where they belong — `negative_line_item_ids` has
+  already moved once.
+- [ ] Look for logic that drifted into templates, and for the inline styles now
+  repeated across six Spendium templates.
+
+#### Test quality
+
+Worth its own section: three separate tests were found passing without
+exercising anything during the build, twice in adjudication and twice in
+perceptual hashing. Each looked fine.
+
+- [ ] Sweep for tests that would still pass with the behaviour removed —
+  especially those asserting on a fake's recorded calls, or on an absence.
+- [ ] Confirm integration tests assert the expensive path was actually taken, not
+  merely that the result looks right.
+- [ ] Check the fixture set in `fixtures_receipts.py` still reflects real receipt
+  shapes rather than what happened to pass.
+
+#### Query cost
+
+Nothing here has been profiled, and several paths loop over products calling
+functions that each issue queries.
+
+- [ ] Profile the Action Centre, the purchase list and `prompt_queue` for N+1
+  behaviour. `ratings.compute` calls `merge_group_ids`, which queries.
+- [ ] Check the navbar badge's cost on a page that has nothing to do with
+  Spendium. It is cached, but the cache miss path runs on every player's first
+  page view.
+- [ ] Confirm the FTS5 narrowing actually bounds Tier 1 against a seeded
+  catalogue rather than a test-sized one.
+
+#### Operational correctness
+
+- [ ] Apply all migrations from an empty database. They have only ever been run
+  incrementally.
+- [ ] List every task and state whether it is idempotent. Cloud Tasks retries up
+  to five times; `anonymise_purchase` and `process_receipt` are known safe, the
+  rest are assumed.
+- [ ] Verify every `config()` without a default exists in Secret Manager. A
+  missing SQID salt broke production once already, and settings fail at import.
+- [ ] Note which behaviour is untestable locally because `enqueue(schedule_time=)`
+  is a no-op under DEBUG.
+
+#### Cost and growth
+
+- [ ] Confirm `MatchConfig.adjudication_candidates = 0` really does stop all
+  spending, end to end. It is the only kill switch.
+- [ ] Decide a retention policy for `ProductRatingSnapshot`, which grows by one
+  row per product per day forever.
+- [ ] Sanity-check the points scale against the criteria weights the membership
+  is likely to set, and confirm nothing overflows `PointTransaction.amount` or
+  `Player.total_points`.
