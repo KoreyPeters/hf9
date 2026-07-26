@@ -70,6 +70,17 @@ resource "google_cloud_run_v2_service" "app" {
       }
     }
   }
+
+  # The image is owned by CI, not by Terraform. cloudbuild.yaml deploys an
+  # immutable :$SHORT_SHA tag; var.app_image defaults to :latest. Without this,
+  # the two fight — every deploy sets a SHA, every apply reverts it, and
+  # whichever ran last decides what is in production. Worse, :latest is mutable,
+  # so a later apply could silently ship a different build than the one someone
+  # thought they were keeping. Terraform still owns everything else here.
+  lifecycle {
+    ignore_changes = [template[0].containers[0].image]
+  }
+
 }
 
 resource "google_cloud_run_v2_job" "migrate" {
@@ -124,6 +135,17 @@ resource "google_cloud_run_v2_job" "migrate" {
       }
     }
   }
+
+  # The image is owned by CI, not by Terraform. cloudbuild.yaml deploys an
+  # immutable :$SHORT_SHA tag; var.app_image defaults to :latest. Without this,
+  # the two fight — every deploy sets a SHA, every apply reverts it, and
+  # whichever ran last decides what is in production. Worse, :latest is mutable,
+  # so a later apply could silently ship a different build than the one someone
+  # thought they were keeping. Terraform still owns everything else here.
+  lifecycle {
+    ignore_changes = [template[0].template[0].containers[0].image]
+  }
+
 }
 
 resource "google_cloud_run_v2_service_iam_member" "public_invoker" {

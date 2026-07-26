@@ -20,6 +20,8 @@ locals {
     "WEBAUTHN_ORIGIN",
     "LITESTREAM_GCS_BUCKET",
     "GCS_BUCKET_NAME",
+    # Receipt images. A private bucket, deliberately not the public asset one.
+    "GCS_MEDIA_BUCKET_NAME",
     "ALLOWED_HOSTS",
     "TASK_BASE_URL",
     "TASK_SERVICE_ACCOUNT",
