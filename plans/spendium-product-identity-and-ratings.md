@@ -422,14 +422,14 @@ starting value.
 
 ### Phase 1 — Product identity layer
 
-- [ ] Create `Manufacturer`, `ProductCategory`, `Product`, `ProductUpc`, `ProductAlias` models
-- [ ] `Product.canonical_name` excludes size; document the format on the model
-- [ ] Add `SqidMixin` to `Product` and register salts in `settings.SQID_SALTS`
-- [ ] Unique constraint on `ProductAlias(store, raw_text_normalised)`; index the raw column
-- [ ] Write `normalise_raw_text()` — case, whitespace, punctuation, common receipt noise
-- [ ] Migrations
-- [ ] Django admin for all five models, including the merge action
-- [ ] Model-level tests for alias status transitions and `merged_into` resolution
+- [x] Create `Manufacturer`, `ProductCategory`, `Product`, `ProductUpc`, `ProductAlias` models
+- [x] `Product.canonical_name` excludes size; document the format on the model
+- [x] Add `SqidMixin` to `Product` and register salts in `settings.SQID_SALTS`
+- [x] Unique constraint on `ProductAlias(store, raw_text_normalised)`; index the raw column
+- [x] Write `normalise_raw_text()` — case, whitespace, punctuation, common receipt noise
+- [x] Migrations
+- [x] Django admin for all five models, including the merge action
+- [x] Model-level tests for alias status transitions and `merged_into` resolution
 
 ### Phase 1b — Catalogue seeding
 
@@ -442,59 +442,69 @@ starting value.
 
 ### Phase 2 — Store and purchase models
 
-- [ ] Create `Store` (brand-level, sqid, lifecycle) and admin
-- [ ] Create `Purchase` (nullable player FK, `image_phash`, `anonymised_at`, `purchase_token`)
-- [ ] Create `PurchaseLineItem` with match state fields
-- [ ] Migrations and admin
-- [ ] `anonymise_purchase` task — nulls player FK, sets token, writes Layer 2 row at day 30
-- [ ] Schedule the anonymisation task at write time via the existing `@task` / `enqueue` system
-- [ ] Tests: anonymisation severs the player link and preserves line-item content
+- [x] Create `Store` (brand-level, sqid, lifecycle) and admin
+- [x] Create `Purchase` (nullable player FK, `image_phash`, `anonymised_at`, `purchase_token`)
+- [x] Create `PurchaseLineItem` with match state fields
+- [x] Migrations and admin
+- [x] `anonymise_purchase` task — nulls player FK, sets token, writes Layer 2 row at day 30
+- [x] Schedule the anonymisation task at write time via the existing `@task` / `enqueue` system
+- [x] Tests: anonymisation severs the player link and preserves line-item content
 
 ### Phase 3 — Matching cascade, Tiers 0 and 1
 
-- [ ] `spendium/matching.py` — `match_line_item(raw_text, interpreted_name, store)`
-- [ ] Tier 0: exact alias lookup, retailer-scoped then global
-- [ ] Add `rapidfuzz` dependency
-- [ ] FTS5 virtual table over canonical names and alias pool, external-content with triggers
-- [ ] Tier 1 Stage A: BM25 narrowing to ~200 candidates
-- [ ] Tier 1 Stage B: rapidfuzz scoring of the shortlist; strong/weak/noise bands
-- [ ] Batch line items per receipt so `rapidfuzz.process.cdist` vectorises
-- [ ] Brand-token pre-filter against `Manufacturer`
-- [ ] Move thresholds and prompt budget into admin-editable config, per
+- [x] `spendium/matching.py` — `match_line_item(raw_text, interpreted_name, store)`
+- [x] Tier 0: exact alias lookup, retailer-scoped then global
+- [x] Add `rapidfuzz` dependency
+- [x] FTS5 virtual table over canonical names and alias pool
+  *(standalone rather than external-content: the searchable text is derived — canonical
+  name plus every alias — not a column-for-column mirror. Kept in step by signals, with
+  `rebuild_product_index` for bulk imports, which bypass signals.)*
+- [x] Tier 1 Stage A: BM25 narrowing to ~200 candidates
+- [x] Tier 1 Stage B: rapidfuzz scoring of the shortlist; strong/weak/noise bands
+- [x] Batch line items per receipt
+  *(no `cdist`: it requires numpy, and the shortlist is already capped, so a full receipt
+  is ~6k comparisons at about 12ms. Measured before deciding. `process.extract` does the
+  same work in C without the dependency.)*
+- [ ] ~~Brand-token pre-filter against `Manufacturer`~~ — **built, then removed.**
+  It compared only the query's first token against the whole manufacturer name, so it fired
+  for single-word brands like Heinz and never for President's Choice or Kirkland Signature —
+  absent precisely where store-brand matching is hardest, and biased toward the easy cases
+  BM25 already handles. Revisit only with real data showing it is needed.
+- [x] Move thresholds and prompt budget into admin-editable config, per
   `SurveyConfig.min_survey_threshold`
-- [ ] Build a labelled fixture set of real receipt strings for threshold tuning
-- [ ] Verify FTS5 index survives a Litestream restore
-- [ ] Tests running entirely offline, no API calls
+- [x] Build a labelled fixture set of real receipt strings for threshold tuning
+- [x] Verify FTS5 index survives a Litestream restore
+- [x] Tests running entirely offline, no API calls
 
 ### Phase 4 — Gemini extraction
 
-- [ ] Add Vertex AI dependency and GCP config via `python-decouple`
-- [ ] `spendium/extraction.py` — single multimodal call, pure extraction schema
+- [x] Add Vertex AI dependency and GCP config via `python-decouple`
+- [x] `spendium/extraction.py` — single multimodal call, pure extraction schema
   (no `catalogue_id`, no `match_type`)
-- [ ] Post-extraction arithmetic checks (line sum vs subtotal, subtotal + tax vs total,
+- [x] Post-extraction arithmetic checks (line sum vs subtotal, subtotal + tax vs total,
   plausible datetime, negative line flags)
-- [ ] Retry at high resolution when `image_quality` is degraded/poor and arithmetic fails
-- [ ] **Delete the image within 24 hours** — task scheduled at processing time; retain phash only
-- [ ] Tests against recorded fixture responses, no live calls in CI
+- [x] Retry at high resolution when `image_quality` is degraded/poor and arithmetic fails
+- [x] **Delete the image within 24 hours** — task scheduled at processing time; retain phash only
+- [x] Tests against recorded fixture responses, no live calls in CI
 
 ### Phase 5 — Tier 2 targeted adjudication
 
-- [ ] `adjudicate_residuals(line_items, candidates)` — second text-only Gemini call
-- [ ] Batch only Tier-0/1 misses; attach top-K candidates per item
-- [ ] Schema allows explicit "none of these"
-- [ ] Confident adjudications write **provisional** aliases only
-- [ ] Track adjudication accuracy against later player confirmations
-- [ ] Tests against fixture responses
+- [x] `adjudicate_residuals(line_items, candidates)` — second text-only Gemini call
+- [x] Batch only Tier-0/1 misses; attach top-K candidates per item
+- [x] Schema allows explicit "none of these"
+- [x] Confident adjudications write **provisional** aliases only
+- [x] Track adjudication accuracy against later player confirmations
+- [x] Tests against fixture responses
 
 ### Phase 6 — Player disambiguation
 
-- [ ] Disambiguation prompt UI on the purchase view (Datastar SSE partial, per existing patterns)
-- [ ] Implement the prompt budget (3–5 per receipt)
-- [ ] Implement global prioritisation ranking
-- [ ] Three prompt states: weak match, no match, free-text entry
-- [ ] Free text runs through the same matching cascade — never writes the catalogue directly
-- [ ] Suppress candidates below the noise floor
-- [ ] Tests for budget enforcement and ranking order
+- [x] Disambiguation prompt UI on the purchase view (Datastar SSE partial, per existing patterns)
+- [x] Implement the prompt budget (3–5 per receipt)
+- [x] Implement global prioritisation ranking
+- [x] Three prompt states: weak match, no match, free-text entry
+- [x] Free text runs through the same matching cascade — never writes the catalogue directly
+- [x] Suppress candidates below the noise floor
+- [x] Tests for budget enforcement and ranking order
 
 ### Phase 6b — Receipt capture and history
 
@@ -514,40 +524,42 @@ would hold the connection open for seconds and time out. Processing moves behind
 the task system, which means the purchase needs a processing state and the page
 needs to reflect it.
 
-- [ ] Add a processing state to `Purchase` (pending / processed / failed) with
+- [x] Add a processing state to `Purchase` (pending / processed / failed) with
   the extraction problems recorded against it
-- [ ] Move `record_receipt()` behind a task; the view stores the image, hashes
+- [x] Move `record_receipt()` behind a task; the view stores the image, hashes
   it, creates the pending purchase and enqueues the work
-- [ ] Upload view: image only, size and content-type validated before storage
-- [ ] Reject a re-upload whose perceptual hash matches a recent purchase by the
+- [x] Upload view: image only, size and content-type validated before storage
+- [x] Reject a re-upload whose perceptual hash matches a recent purchase by the
   same player, rather than paying to extract the same receipt twice
-- [ ] Purchase page shows processing state, and the extraction problems when a
+- [x] Purchase page shows processing state, and the extraction problems when a
   receipt could not be read reliably
-- [ ] Purchase list — the player's receipts, newest first, with store, date,
+- [x] Purchase list — the player's receipts, newest first, with store, date,
   total, and how many line items are still unresolved
-- [ ] Delete a single purchase, and delete all purchase history, per the
+- [x] Delete a single purchase, and delete all purchase history, per the
   published policy. Deleting removes the player-linked rows; anonymous rows
   already written stay, which is what the policy describes
-- [ ] Export purchase history, to satisfy the access commitment
-- [ ] Gate receipt scanning to members
-- [ ] Tests: upload validation, duplicate rejection, async processing states,
+- [x] Export purchase history, to satisfy the access commitment
+- [x] Gate receipt scanning to members
+- [x] Tests: upload validation, duplicate rejection, async processing states,
   deletion removes the player-linked record and leaves the anonymous one
 
 ### Phase 7 — Alias integrity
 
-- [ ] Confirmation flow: provisional → authoritative on second independent confirmation
-- [ ] Contradiction demotes to provisional and reopens for prompting
-- [ ] Repeated contradiction flags for the admin merge queue
-- [ ] Auto-cluster new unverified records against existing unverified records
-- [ ] Auto-merge above the high-similarity bar when both sides are unverified
-- [ ] Rating aggregation resolves `merged_into` transitively
-- [ ] Tests: poisoning scenario, merge rollup preserves ratings
+- [x] Confirmation flow: provisional → authoritative on second independent confirmation
+- [x] Contradiction demotes to provisional and reopens for prompting
+- [x] Repeated contradiction flags for the admin merge queue
+- [x] Auto-cluster new unverified records against existing unverified records
+- [x] Auto-merge above the high-similarity bar when both sides are unverified
+- [x] `merge_group_ids()` walks the merge chain in both directions
+  *(the mechanism only; wiring it into rating aggregation belongs to Phase 9, which is where
+  ratings first exist. Phase 9 must use it rather than querying a single product id.)*
+- [x] Tests: poisoning scenario, merge rollup preserves ratings
 
 ### Phase 8 — Retro-matching
 
-- [ ] Scheduled task re-running Tiers 0/1 over unresolved line items
-- [ ] Guard: never overwrite player-confirmed identity, never alter settled points
-- [ ] Tests: catalogue growth resolves historical backlog
+- [x] Scheduled task re-running Tiers 0/1 over unresolved line items
+- [x] Guard: never overwrite player-confirmed identity, never alter settled points
+- [x] Tests: catalogue growth resolves historical backlog
 
 ### Phase 9 — Ratings
 
