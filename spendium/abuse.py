@@ -93,7 +93,13 @@ def release(purchase: Purchase) -> Decimal:
 
 
 def held_purchases():
-    """The review queue, oldest first — a held payout is a player waiting."""
+    """The review queue, oldest first.
+
+    Nothing here is urgent — the points are free and nobody is out of pocket.
+    Oldest first simply stops a hold being forgotten indefinitely, which is the
+    only failure mode that matters: a player who never finds out why a receipt
+    paid nothing concludes the accounting is unreliable and stops bothering.
+    """
     return (
         Purchase.objects.exclude(hold_reason="")
         .select_related("player", "store")

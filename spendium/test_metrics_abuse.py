@@ -328,7 +328,7 @@ def test_paid_purchases_are_never_clawed_back(
 def test_the_review_queue_is_oldest_first(
     shopper: Player, store: Store, settings
 ) -> None:
-    """A held payout is a player waiting."""
+    """So a hold cannot be forgotten indefinitely — not because it is urgent."""
     settings.SPENDIUM = {**settings.SPENDIUM, "HIGH_VALUE_HOLD": "1"}
     first = make_purchase(shopper, store)
     second = make_purchase(shopper, store)
