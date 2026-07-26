@@ -245,6 +245,16 @@ SPENDIUM = {
     # How far back to look for a duplicate. Long enough to catch a resubmission,
     # short enough that a genuinely repeated shop is not blocked.
     "DUPLICATE_LOOKBACK_DAYS": config("DUPLICATE_LOOKBACK_DAYS", default=90, cast=int),
+    # Ratings.
+    # A response not anchored to a receipt still counts, but less. It may be
+    # anyone with an opinion, and it is the first thing a manufacturer disputing
+    # a rating would attack.
+    "UNVERIFIED_RATING_WEIGHT": config("UNVERIFIED_RATING_WEIGHT", default="0.4"),
+    # k-anonymity before an aggregate may be published. Distinct from the
+    # display threshold: this one is about nobody reconstructing an individual
+    # basket from sparse data, not about the number being meaningful.
+    "PUBLISH_K": config("PUBLISH_K", default=10, cast=int),
+    "PUBLISH_K_SENSITIVE": config("PUBLISH_K_SENSITIVE", default=25, cast=int),
 }
 
 MEMBER_MULTIPLIER: float = config("MEMBER_MULTIPLIER", default=1.5, cast=float)

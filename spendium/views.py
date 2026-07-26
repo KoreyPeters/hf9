@@ -19,7 +19,10 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from . import disambiguation, service
+from surveys.models import Category, Criterion
+from surveys.service import CoolDownError, submit_survey
+
+from . import disambiguation, ratings, service
 from .models import Product, Purchase, PurchaseLineItem
 
 
@@ -257,3 +260,83 @@ def purchase_history_export(request: HttpRequest) -> JsonResponse:
         'attachment; filename="spendium-purchase-history.json"'
     )
     return response
+
+
+# ── Product ratings ───────────────────────────────────────────────────────────
+
+
+def _rating_ctx(product: Product, player: object) -> dict[str, object]:
+    rating = ratings.compute(product)
+    category = Category.objects.filter(game="spendium").order_by("pk").first()
+    can_rate = player.is_authenticated and ratings.player_has_bought(player, product)
+    return {
+        "product": product,
+        "rating": rating,
+        "breakdown": ratings.response_breakdown(product),
+        "trend": ratings.trend(product),
+        "category": category,
+        "criteria": (
+            Criterion.objects.filter(category=category, is_active=True).order_by("pk")
+            if category
+            else []
+        ),
+        "can_rate": can_rate,
+        # Anyone may rate; only a receipt makes it verified. Saying so up front
+        # is fairer than silently discounting the answer afterwards.
+        "will_be_verified": can_rate,
+    }
+
+
+def product_detail(request: HttpRequest, sqid: str) -> HttpResponse:
+    """Public. Ratings are meant to be actionable by people who are not players."""
+    product = get_object_or_404(Product, sqid=sqid)
+    canonical = product.resolve_canonical()
+    if canonical.pk != product.pk:
+        return redirect("spendium:product_detail", sqid=canonical.sqid)
+    return render(
+        request, "spendium/product_detail.html", _rating_ctx(product, request.user)
+    )
+
+
+@login_required
+@require_POST
+def submit_product_survey(request: HttpRequest, sqid: str) -> DatastarResponse:
+    product = get_object_or_404(Product, sqid=sqid).resolve_canonical()
+    signals = read_signals(request) or {}
+
+    answers: dict[int, bool] = {}
+    for key, value in signals.items():
+        if not key.startswith("criterion_"):
+            continue
+        try:
+            answers[int(key.removeprefix("criterion_"))] = bool(value)
+        except ValueError:
+            continue
+
+    error = ""
+    if not answers:
+        error = "Answer at least one question."
+    else:
+        category = Category.objects.filter(game="spendium").order_by("pk").first()
+        try:
+            submit_survey(
+                request.user,
+                product,
+                answers,
+                is_verified=ratings.player_has_bought(request.user, product),
+                criteria_version=category.criteria_version if category else 1,
+            )
+        except CoolDownError as exc:
+            error = f"You rated this recently. Try again in {exc.args[0].days} days."
+
+    context = _rating_ctx(product, request.user)
+    context["error"] = error
+    context["submitted"] = not error
+    html = render_to_string(
+        "spendium/partials/product_rating_section.html", context, request=request
+    )
+    return DatastarResponse(
+        ServerSentEventGenerator.patch_elements(
+            html, selector="#product-rating-section"
+        )
+    )

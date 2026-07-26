@@ -20,6 +20,19 @@ def sweep_purchase_anonymisation() -> None:
         service.anonymise_purchase(purchase_id)
 
 
+@task("snapshot-product-ratings")
+def snapshot_product_ratings() -> None:
+    """Record today's rating for every product.
+
+    Daily, because a rating computed over a rolling window cannot be
+    reconstructed later — the responses behind it age out. A missed day is a
+    gap in the trend line, not a correctness problem.
+    """
+    from . import ratings
+
+    ratings.snapshot_all()
+
+
 @task("retro-match")
 def retro_match() -> None:
     """Re-run matching over recorded line items against the current catalogue.

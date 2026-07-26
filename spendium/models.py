@@ -380,6 +380,34 @@ class ProductAlias(models.Model):
         return f"{self.raw_text} ({scope}) → {self.product.canonical_name}"
 
 
+class ProductRatingSnapshot(models.Model):
+    """A product's rating on one day.
+
+    Ratings are computed over a rolling twelve-month window, so a past value
+    cannot be reconstructed after the fact — the responses behind it age out.
+    Recording them as they happen is the only way to show a trend later.
+    """
+
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name="rating_snapshots"
+    )
+    taken_on = models.DateField(db_index=True)
+    score = models.DecimalField(max_digits=4, decimal_places=3)
+    response_count = models.PositiveIntegerField(default=0)
+    verified_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product", "taken_on"], name="one_snapshot_per_product_per_day"
+            )
+        ]
+        ordering = ["taken_on"]
+
+    def __str__(self) -> str:
+        return f"{self.product.canonical_name} @ {self.taken_on}: {self.score}"
+
+
 class AliasConfirmation(models.Model):
     """One player's verdict on what a receipt string means.
 

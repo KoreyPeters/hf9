@@ -7,6 +7,12 @@ app_name = "spendium"
 urlpatterns = [
     path("notify/", views.notify, name="notify"),
     path("privacy/", views.privacy, name="privacy"),
+    path("products/<str:sqid>/", views.product_detail, name="product_detail"),
+    path(
+        "products/<str:sqid>/rate/",
+        views.submit_product_survey,
+        name="submit_product_survey",
+    ),
     path("receipts/", views.purchase_list, name="purchase_list"),
     path("receipts/upload/", views.receipt_upload, name="receipt_upload"),
     path(

@@ -66,6 +66,31 @@ resource "google_cloud_scheduler_job" "sweep_purchase_anonymisation" {
   }
 }
 
+# Daily rating snapshots. Ratings are computed over a rolling twelve-month
+# window, so a past value cannot be reconstructed later — the responses behind it
+# age out. Recording them as they happen is the only way to show a trend. A
+# missed run is a gap in the line, not a correctness problem.
+resource "google_cloud_scheduler_job" "snapshot_product_ratings" {
+  name             = "hf-snapshot-product-ratings"
+  project          = var.project
+  region           = var.region
+  schedule         = "0 5 * * *"
+  time_zone        = "UTC"
+  attempt_deadline = "600s"
+
+  depends_on = [google_project_service.apis]
+
+  http_target {
+    uri         = "https://humanflourish.ing/tasks/snapshot-product-ratings/"
+    http_method = "POST"
+
+    oidc_token {
+      service_account_email = google_service_account.tasks.email
+      audience              = "https://humanflourish.ing"
+    }
+  }
+}
+
 # Retro-matching. Re-runs the matching cascade over line items already recorded,
 # so every alias a player confirms improves receipts read months earlier. This is
 # the compounding mechanism, and it is deliberately unhurried — nothing breaks if

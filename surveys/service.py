@@ -51,7 +51,14 @@ def submit_survey(
     player: object,
     subject: Model,
     answers: dict[int, bool],
+    is_verified: bool = False,
+    criteria_version: int = 1,
 ) -> tuple[SurveyResponse, Decimal]:
+    """Record a survey and award its points.
+
+    `is_verified` and `criteria_version` default to the values Polium has always
+    behaved as though it used, so its callers are unaffected.
+    """
     ct = ContentType.objects.get_for_model(subject)
     existing = _get_existing(player, ct, subject.pk)
 
@@ -66,7 +73,16 @@ def submit_survey(
         existing.answers.all().delete()
         existing.submitted_at = timezone.now()
         existing.submit_count = new_count
-        existing.save(update_fields=["submitted_at", "submit_count"])
+        existing.is_verified = is_verified
+        existing.criteria_version = criteria_version
+        existing.save(
+            update_fields=[
+                "submitted_at",
+                "submit_count",
+                "is_verified",
+                "criteria_version",
+            ]
+        )
         response = existing
     else:
         new_count = 1
@@ -74,12 +90,16 @@ def submit_survey(
             player=player,
             content_type=ct,
             object_id=subject.pk,
+            is_verified=is_verified,
+            criteria_version=criteria_version,
         )
 
-    CriterionAnswer.objects.bulk_create([
-        CriterionAnswer(survey_response=response, criterion_id=cid, answer=val)
-        for cid, val in answers.items()
-    ])
+    CriterionAnswer.objects.bulk_create(
+        [
+            CriterionAnswer(survey_response=response, criterion_id=cid, answer=val)
+            for cid, val in answers.items()
+        ]
+    )
 
     if new_count == 1:
         amount = config.survey_points_first

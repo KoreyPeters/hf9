@@ -13,6 +13,7 @@ urlpatterns = [
     path("sweep-purchase-anonymisation/", spendium_task_views.sweep_purchase_anonymisation, name="task_sweep_purchase_anonymisation"),
     path("process-receipt/", spendium_task_views.process_receipt, name="task_process_receipt"),
     path("retro-match/", spendium_task_views.retro_match, name="task_retro_match"),
+    path("snapshot-product-ratings/", spendium_task_views.snapshot_product_ratings, name="task_snapshot_product_ratings"),
     path("delete-receipt-image/", spendium_task_views.delete_receipt_image, name="task_delete_receipt_image"),
     path("sweep-receipt-images/", spendium_task_views.sweep_receipt_images, name="task_sweep_receipt_images"),
 ]

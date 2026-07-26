@@ -567,17 +567,45 @@ needs to reflect it.
 
 ### Phase 9 — Ratings
 
-- [ ] Register `Product` as a survey subject via the existing generic engine
-- [ ] Confirm `compute_rating` works unchanged for products
-- [ ] Founder-set opening criteria, flagged temporary in the UI
-- [ ] Criteria versioning so responses under different question sets stay distinguishable
-- [ ] Product rating display, response count, trend
-- [ ] Gate display on `SurveyConfig.min_survey_threshold`; separate k=10 gate on published
+- [x] Register `Product` as a survey subject via the existing generic engine
+- [x] Confirm `compute_rating` works unchanged for products
+- [x] Founder-set opening criteria, flagged temporary in the UI
+- [x] Criteria versioning so responses under different question sets stay distinguishable
+- [x] Product rating display, response count, trend
+  *(trend needed a `ProductRatingSnapshot` model and a daily task. The source plan called
+  snapshots an "established pattern from Polium", but Polium has only a single
+  `pre_election_rating_snapshot` field, not a time series — there was nothing to reuse.)*
+- [x] Gate display on `SurveyConfig.min_survey_threshold`; separate k=10 gate on published
   aggregates, higher for sensitive categories
-- [ ] Ratings keep product reference only — no receipt FK
-- [ ] Award rating points as a bonus — never gate purchase points on rating
-- [ ] Weight unverified (non-receipt-anchored) ratings lower; never let them alone clear the
+- [x] Ratings keep product reference only — no receipt FK
+- [x] Award rating points as a bonus — never gate purchase points on rating
+  *(the existing survey engine already awards them; the coupling this forbids is simply
+  never built. Purchase points themselves were missing from the plan entirely — see
+  Phase 9b.)*
+- [x] Weight unverified (non-receipt-anchored) ratings lower; never let them alone clear the
   display threshold
+
+### Phase 9b — Purchase points
+
+The plan refers to purchase points twice — rating points are "a bonus on top of
+purchase points", and nothing may gate them — but no phase ever builds them. A
+player currently uploads a receipt, has it read, disambiguates it, and earns
+nothing. Spendium's whole loop is rewarding ethical spending, so this is the
+reward.
+
+Deliberately after ratings, because the amount depends on a product's rating and
+a store's, and both need to exist first.
+
+- [ ] Points formula from the design: dollars × store rating, with a reduced
+  multiplier for self-reported and online purchases
+- [ ] Award once per purchase, at processing time, via the existing ledger
+- [ ] Negative line items earn nothing — already identified by
+  `negative_line_total_ids`, never subtracted
+- [ ] Points survive anonymisation: the ledger entry keeps store, date and
+  amount, and loses its reference to the basket
+- [ ] Never re-award on retro-matching or reprocessing
+- [ ] Show points earned on the purchase page and in the receipt list
+- [ ] Tests: awarded once, unaffected by later matching, never gated on rating
 
 ### Phase 10 — Action Centre
 

@@ -1,0 +1,90 @@
+{% comment %}
+Two gates, deliberately distinct. A rating is shown once enough people who
+actually bought the product have answered; it is *published* as an aggregate
+only once enough purchases sit behind it, so no individual basket can be
+reverse-engineered from sparse data.
+{% endcomment %}
+<div id="product-rating-section" data-signals='{}'>
+
+  {% if error %}
+  <p style="color:#b91c1c;font-size:.85rem;margin:0 0 1rem">{{ error }}</p>
+  {% endif %}
+  {% if submitted %}
+  <p style="color:#047857;font-size:.85rem;margin:0 0 1rem">Thanks — your rating is recorded.</p>
+  {% endif %}
+
+  {# The rating itself #}
+  {% if rating.displayable %}
+  <div style="margin-bottom:1.5rem">
+    <p style="font-size:1.6rem;font-weight:600;margin:0">{{ rating.percentage }}%</p>
+    <p style="font-size:.8rem;color:#6b7280;margin:.25rem 0 0">
+      from {{ rating.verified_count }} verified
+      {% if breakdown.unverified %}and {{ breakdown.unverified }} unverified{% endif %}
+      rating{{ rating.response_count|pluralize }}
+      {% if not rating.publishable %}
+      &middot; <span title="Aggregates are withheld until enough purchases sit behind them, so no individual basket can be identified">not yet published</span>
+      {% endif %}
+    </p>
+  </div>
+  {% else %}
+  <div style="margin-bottom:1.5rem">
+    <p style="font-size:.9rem;color:#6b7280;margin:0">
+      Not enough ratings yet.
+      {% if rating.response_count %}
+      {{ rating.verified_count }} verified so far.
+      {% endif %}
+    </p>
+  </div>
+  {% endif %}
+
+  {# Trend #}
+  {% if trend|length > 1 %}
+  <p style="font-size:.75rem;color:#9ca3af;margin:0 0 1.5rem">
+    {{ trend|length }} data point{{ trend|length|pluralize }} recorded over the last two years.
+  </p>
+  {% endif %}
+
+  {# The survey #}
+  {% if can_rate and criteria %}
+  <div style="border-top:1px solid #f3f4f6;padding-top:1.25rem">
+    <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.05rem;margin:0 0 .25rem">
+      Rate this product
+    </h2>
+    {% if category.criteria_are_provisional %}
+    <p style="font-size:.75rem;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:4px;padding:.5rem .7rem;margin:0 0 1rem">
+      These questions were set by the founder to get started. Deciding the
+      criteria is meant to be the membership's job, and this is temporary.
+    </p>
+    {% endif %}
+
+    <div style="display:flex;flex-direction:column;gap:.85rem;margin-bottom:1rem">
+      {% for criterion in criteria %}
+      <div>
+        <p style="font-size:.875rem;color:#111;margin:0 0 .35rem">{{ criterion.question }}</p>
+        <label style="font-size:.8rem;margin-right:1rem;cursor:pointer">
+          <input type="radio" name="criterion_{{ criterion.pk }}"
+                 data-bind:criterion_{{ criterion.pk }} value="true"> Yes
+        </label>
+        <label style="font-size:.8rem;cursor:pointer">
+          <input type="radio" name="criterion_{{ criterion.pk }}"
+                 data-bind:criterion_{{ criterion.pk }} value=""> No
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+
+    <button data-on:click="@post('{% url 'spendium:submit_product_survey' product.sqid %}')"
+            data-indicator:_rating_saving
+            data-attr:disabled="$_rating_saving"
+            style="padding:.45rem 1.1rem;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:.875rem">
+      Submit rating
+    </button>
+  </div>
+
+  {% elif user.is_authenticated %}
+  <p style="font-size:.85rem;color:#6b7280;border-top:1px solid #f3f4f6;padding-top:1.25rem;margin:0">
+    You can rate this once you have bought it and uploaded the receipt.
+  </p>
+  {% endif %}
+
+</div>

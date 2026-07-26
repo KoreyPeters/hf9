@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ product.canonical_name }} — Spendium{% endblock %}
+{% block content %}
+<main style="max-width:720px;margin:0 auto;padding:2rem 1.5rem;font-family:system-ui,sans-serif">
+
+  <div style="margin-bottom:1.75rem">
+    <h1 style="font-family:Georgia,serif;font-weight:normal;margin:0">
+      {{ product.canonical_name }}
+    </h1>
+    <p style="color:#6b7280;margin:.35rem 0 0;font-size:.9rem">
+      {% if product.manufacturer %}{{ product.manufacturer.name }}{% endif %}
+      {% if product.category %} &middot; {{ product.category.name }}{% endif %}
+      {% if product.status == "unverified" %}
+      &middot; <span title="Created from a receipt or a player description, not yet reviewed">unverified record</span>
+      {% endif %}
+    </p>
+  </div>
+
+  {% include "spendium/partials/product_rating_section.html" %}
+
+</main>
+{% endblock %}
