@@ -576,11 +576,20 @@ def pending_purchase_ids() -> list[int]:
     and receipts whose `process-receipt` task was simply dropped. Before this
     existed the second case meant a receipt sat pending forever with nothing
     watching.
+
+    A fresh upload is left alone for SWEEP_GRACE_MINUTES. Its own task is already
+    in flight, and both running at once means two Gemini extractions of the same
+    image and two writers contending for the one lock SQLite allows — which is
+    how this sweep started causing the failures it exists to recover from.
+    Neither case above is affected: both are older than the grace period by the
+    time anything notices them.
     """
+    grace: int = settings.SPENDIUM["SWEEP_GRACE_MINUTES"]
+    cutoff = timezone.now() - timedelta(minutes=grace)
     return list(
-        Purchase.objects.filter(processing_status=Purchase.STATUS_PENDING).values_list(
-            "pk", flat=True
-        )
+        Purchase.objects.filter(
+            processing_status=Purchase.STATUS_PENDING, created_at__lte=cutoff
+        ).values_list("pk", flat=True)
     )
 
 

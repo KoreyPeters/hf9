@@ -9,6 +9,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils import timezone
@@ -90,6 +91,19 @@ def test_undecodable_image_is_refused(shopper: Player) -> None:
 # upload raised after the receipt had already been stored.
 
 
+def _age_past_sweep_grace(purchase: Purchase) -> None:
+    """Make a purchase old enough for the sweep to consider it.
+
+    `pending_purchase_ids` ignores anything younger than SWEEP_GRACE_MINUTES, so
+    a test that uploads and immediately sweeps is testing a case the sweep is
+    built to skip.
+    """
+    grace = settings.SPENDIUM["SWEEP_GRACE_MINUTES"]
+    Purchase.objects.filter(pk=purchase.pk).update(
+        created_at=timezone.now() - timedelta(minutes=grace + 1)
+    )
+
+
 @pytest.fixture
 def broken_queue(monkeypatch: pytest.MonkeyPatch) -> None:
     def refuse(*args: object, **kwargs: object) -> None:
@@ -118,6 +132,10 @@ def test_the_sweep_reads_a_receipt_whose_task_was_never_queued(
     fake_model(receipt_payload())
     purchase = service.accept_upload(shopper, png_bytes(), content_type="image/png")
 
+    # Past the sweep's grace period. A receipt this fresh is deliberately left to
+    # its own task; the sweep only takes over once that task has plainly not
+    # arrived, which is the case being tested here.
+    _age_past_sweep_grace(purchase)
     _registry["sweep-pending-receipts"]()
 
     purchase.refresh_from_db()

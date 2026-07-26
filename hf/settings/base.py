@@ -89,7 +89,15 @@ DATABASES = {
                 "PRAGMA temp_store=MEMORY; "
                 "PRAGMA mmap_size=134217728;"
             ),
-            "timeout": 20,
+            # How long a writer waits for the lock before giving up. SQLite allows
+        # one writer, and `process_receipt` holds the lock from its first write
+        # through to commit — a window that currently contains an adjudication
+        # call to Gemini. 20s was close enough to that window that a second
+        # writer, often only trying to touch a session row, timed out and
+        # surfaced as "database is locked". Waiting is the right behaviour here;
+        # the window itself is the bug, and shortening it is tracked in
+        # plans/receipt-processing-lock-contention.md.
+        "timeout": 60,
         },
     }
 }
@@ -251,6 +259,13 @@ SPENDIUM = {
     # Receipt images are a published commitment: deleted within 24 hours of
     # processing, regardless of account status. See templates/spendium/privacy.html.
     "IMAGE_RETENTION_HOURS": config("IMAGE_RETENTION_HOURS", default=24, cast=int),
+    # How long a fresh upload is left to its own task before the sweep will also
+    # pick it up. The sweep is a backstop, not a second runner: the cases it
+    # exists for — a dropped task, a receipt that waited out an emergency stop —
+    # are minutes old at least, while a receipt uploaded seconds ago already has
+    # a task in flight. Both running at once costs a duplicate Gemini extraction
+    # and a fight over the single SQLite writer.
+    "SWEEP_GRACE_MINUTES": config("SWEEP_GRACE_MINUTES", default=5, cast=int),
     # Receipt extraction. Vertex AI is reached through the Gen AI SDK; the old
     # vertexai.generative_models path is retired.
     "GEMINI_MODEL": config("GEMINI_MODEL", default="gemini-2.5-flash"),

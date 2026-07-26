@@ -10,6 +10,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils import timezone
@@ -143,6 +144,14 @@ def test_no_points_are_wrongly_awarded_while_stopped(
 # ── Resuming needs no further intervention ────────────────────────────────────
 
 
+def _age_past_sweep_grace(purchase: Purchase) -> None:
+    """Put a purchase past SWEEP_GRACE_MINUTES, so the sweep will consider it."""
+    grace = settings.SPENDIUM["SWEEP_GRACE_MINUTES"]
+    Purchase.objects.filter(pk=purchase.pk).update(
+        created_at=timezone.now() - timedelta(minutes=grace + 1)
+    )
+
+
 @pytest.mark.django_db
 def test_waiting_receipts_are_read_once_it_is_switched_off(
     shopper: Player, fake_model
@@ -154,6 +163,9 @@ def test_waiting_receipts_are_read_once_it_is_switched_off(
     state = EmergencyStop.get()
     state.is_stopped = False
     state.save()
+    # A receipt that waited out a stop is old by definition, which is what puts
+    # it past the sweep's grace period in the first place.
+    _age_past_sweep_grace(purchase)
     _registry["sweep-pending-receipts"]()
 
     purchase.refresh_from_db()
@@ -185,7 +197,19 @@ def test_the_sweeper_also_catches_a_dropped_task(shopper: Player, fake_model) ->
         total=Decimal("0"),
         processing_status=Purchase.STATUS_PENDING,
     )
+    _age_past_sweep_grace(purchase)
     assert purchase.pk in service.pending_purchase_ids()
+
+
+@pytest.mark.django_db
+def test_a_fresh_upload_is_left_to_its_own_task(shopper: Player, fake_model) -> None:
+    """The sweep is a backstop, not a second runner. Both reading the same
+    receipt at once costs a duplicate extraction and puts two writers on a
+    database that permits one."""
+    fake_model(receipt_payload())
+    purchase = service.accept_upload(shopper, png_bytes(), content_type="image/png")
+
+    assert purchase.pk not in service.pending_purchase_ids()
 
 
 # ── A stop that outlives the image retention window ───────────────────────────
