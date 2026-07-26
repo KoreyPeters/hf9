@@ -75,6 +75,7 @@ def enqueue(
     }
     if schedule_time is not None:
         from google.protobuf import timestamp_pb2
+
         ts = timestamp_pb2.Timestamp()
         ts.FromDatetime(schedule_time)
         task_body["schedule_time"] = ts

@@ -31,9 +31,22 @@ class JurisdictionFollowInline(admin.TabularInline):
 
 @admin.register(Jurisdiction)
 class JurisdictionAdmin(admin.ModelAdmin):
-    list_display = ("name", "level", "parent", "status", "active_engagement", "created_at")
+    list_display = (
+        "name",
+        "level",
+        "parent",
+        "status",
+        "active_engagement",
+        "created_at",
+    )
     list_filter = ("status", "level")
-    readonly_fields = ("sqid", "status", "active_engagement", "deprecated_at", "created_at")
+    readonly_fields = (
+        "sqid",
+        "status",
+        "active_engagement",
+        "deprecated_at",
+        "created_at",
+    )
     inlines = [JurisdictionDuplicateFlagInline, JurisdictionFollowInline]
 
 
@@ -151,7 +164,12 @@ class CandidateAdmin(admin.ModelAdmin):
         "is_blacklisted",
         "engagement_count",
     )
-    list_filter = ("is_blacklisted", "is_endorsed", "election_win_confirmed", "jurisdiction")
+    list_filter = (
+        "is_blacklisted",
+        "is_endorsed",
+        "election_win_confirmed",
+        "jurisdiction",
+    )
     readonly_fields = (
         "sqid",
         "current_rating",
@@ -163,20 +181,46 @@ class CandidateAdmin(admin.ModelAdmin):
         "created_at",
     )
     fieldsets = (
-        (None, {
-            "fields": ("sqid", "name", "office", "jurisdiction", "election", "created_by",
-                       "external_reference", "bio", "current_rating", "engagement_count",
-                       "created_at"),
-        }),
-        ("Endorsement", {
-            "fields": ("is_endorsed", "endorsement_url", "endorsement_verified_at"),
-        }),
-        ("Election win", {
-            "fields": ("election_win_confirmed", "pre_election_rating_snapshot"),
-        }),
-        ("Blacklist", {
-            "fields": ("is_blacklisted", "blacklisted_at", "rating_below_threshold_since"),
-        }),
+        (
+            None,
+            {
+                "fields": (
+                    "sqid",
+                    "name",
+                    "office",
+                    "jurisdiction",
+                    "election",
+                    "created_by",
+                    "external_reference",
+                    "bio",
+                    "current_rating",
+                    "engagement_count",
+                    "created_at",
+                ),
+            },
+        ),
+        (
+            "Endorsement",
+            {
+                "fields": ("is_endorsed", "endorsement_url", "endorsement_verified_at"),
+            },
+        ),
+        (
+            "Election win",
+            {
+                "fields": ("election_win_confirmed", "pre_election_rating_snapshot"),
+            },
+        ),
+        (
+            "Blacklist",
+            {
+                "fields": (
+                    "is_blacklisted",
+                    "blacklisted_at",
+                    "rating_below_threshold_since",
+                ),
+            },
+        ),
     )
     actions = [initiate_blacklisting]
     inlines = [OfficeHistoryInline, BlacklistHistoryInline, VoteDeclarationInline]
@@ -184,7 +228,12 @@ class CandidateAdmin(admin.ModelAdmin):
 
 @admin.register(BlacklistHistory)
 class BlacklistHistoryAdmin(admin.ModelAdmin):
-    list_display = ("candidate", "blacklisted_at", "rating_at_blacklist", "blacklisted_by")
+    list_display = (
+        "candidate",
+        "blacklisted_at",
+        "rating_at_blacklist",
+        "blacklisted_by",
+    )
     readonly_fields = (
         "candidate",
         "blacklisted_at",

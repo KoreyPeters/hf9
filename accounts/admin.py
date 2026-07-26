@@ -9,7 +9,20 @@ class PlayerAdmin(UserAdmin):
     readonly_fields = (*UserAdmin.readonly_fields, "sqid", "total_points")
     fieldsets = (
         *UserAdmin.fieldsets,
-        ("HF", {"fields": ("display_name", "email_verified", "email_verified_at", "jurisdiction_country", "jurisdiction_region", "total_points", "sqid")}),
+        (
+            "HF",
+            {
+                "fields": (
+                    "display_name",
+                    "email_verified",
+                    "email_verified_at",
+                    "jurisdiction_country",
+                    "jurisdiction_region",
+                    "total_points",
+                    "sqid",
+                )
+            },
+        ),
     )
 
 

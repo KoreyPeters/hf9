@@ -8,7 +8,13 @@ from django.utils import timezone
 
 from accounts.models import Player
 from evidence.models import Evidence, EvidenceFlag, EvidenceUsefulness
-from evidence.service import AlreadyFlaggedError, NotMatureError, flag_evidence, submit_evidence, vote_usefulness
+from evidence.service import (
+    AlreadyFlaggedError,
+    NotMatureError,
+    flag_evidence,
+    submit_evidence,
+    vote_usefulness,
+)
 from polium.models import Candidate, Jurisdiction
 
 
@@ -16,9 +22,12 @@ from polium.models import Candidate, Jurisdiction
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_candidate(db) -> Candidate:
     j = Jurisdiction.objects.create(name="Test State", level="state", created_by=None)
-    c = Candidate.objects.create(name="Alice Smith", office="Governor", jurisdiction=j, created_by=None)
+    c = Candidate.objects.create(
+        name="Alice Smith", office="Governor", jurisdiction=j, created_by=None
+    )
     c.sqid  # trigger sqid generation via post-save signal / property
     return c
 
@@ -39,6 +48,7 @@ def _make_evidence(player: Player, candidate: Candidate) -> Evidence:
 # Service — submit_evidence
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 def test_submit_evidence_creates_record(player):
     candidate = _make_candidate(None)
@@ -55,16 +65,21 @@ def test_submit_evidence_creates_record(player):
 @pytest.mark.django_db
 def test_submit_evidence_no_criterion(player):
     candidate = _make_candidate(None)
-    ev = submit_evidence(player, candidate, "https://example.com", "Note", criterion=None)
+    ev = submit_evidence(
+        player, candidate, "https://example.com", "Note", criterion=None
+    )
     assert ev.criterion is None
 
 
 @pytest.mark.django_db
 def test_submit_evidence_with_criterion(player):
     from surveys.models import Category, Criterion
+
     candidate = _make_candidate(None)
     cat = Category.objects.create(name="Ethics", description="", game="polium")
-    cr = Criterion.objects.create(category=cat, question="Is the candidate honest?", is_active=True)
+    cr = Criterion.objects.create(
+        category=cat, question="Is the candidate honest?", is_active=True
+    )
     ev = submit_evidence(player, candidate, "https://example.com", "Note", criterion=cr)
     assert ev.criterion == cr
 
@@ -72,6 +87,7 @@ def test_submit_evidence_with_criterion(player):
 # ---------------------------------------------------------------------------
 # Service — vote_usefulness
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 def test_vote_useful_creates_vote(player):
@@ -121,6 +137,7 @@ def test_recompute_score_reflects_votes(player, db):
 # Service — flag_evidence
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 def test_flag_evidence_creates_flag(mature_player):
     candidate = _make_candidate(None)
@@ -136,9 +153,12 @@ def test_flag_evidence_not_mature_age(player):
     ev = _make_evidence(player, candidate)
     # player is newly created (age=0 days) — never mature by age
     from surveys.models import SurveyResponse
+
     ct = ContentType.objects.get_for_model(Player)
     for _ in range(3):
-        SurveyResponse.objects.create(player=player, content_type=ct, object_id=player.pk)
+        SurveyResponse.objects.create(
+            player=player, content_type=ct, object_id=player.pk
+        )
     with pytest.raises(NotMatureError):
         flag_evidence(player, ev, EvidenceFlag.REASON_IRRELEVANT)
 
@@ -148,7 +168,9 @@ def test_flag_evidence_not_mature_surveys(player):
     candidate = _make_candidate(None)
     ev = _make_evidence(player, candidate)
     # age is old enough but no survey responses
-    Player.objects.filter(pk=player.pk).update(date_joined=timezone.now() - timedelta(days=8))
+    Player.objects.filter(pk=player.pk).update(
+        date_joined=timezone.now() - timedelta(days=8)
+    )
     player.refresh_from_db()
     with pytest.raises(NotMatureError):
         flag_evidence(player, ev, EvidenceFlag.REASON_IRRELEVANT)
@@ -189,10 +211,13 @@ def test_flag_does_not_hide_high_usefulness(mature_player, db):
 # View tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def candidate(db):
     j = Jurisdiction.objects.create(name="Test State", level="state", created_by=None)
-    c = Candidate.objects.create(name="Bob Jones", office="Senator", jurisdiction=j, created_by=None)
+    c = Candidate.objects.create(
+        name="Bob Jones", office="Senator", jurisdiction=j, created_by=None
+    )
     return c
 
 
@@ -237,7 +262,9 @@ def test_candidate_profile_shows_evidence(client: Client, candidate, visible_evi
 
 
 @pytest.mark.django_db
-def test_candidate_profile_hides_non_visible(client: Client, candidate, hidden_evidence):
+def test_candidate_profile_hides_non_visible(
+    client: Client, candidate, hidden_evidence
+):
     url = reverse("polium:candidate_detail", kwargs={"sqid": candidate.sqid})
     response = client.get(url)
     assert b"Hidden evidence note." not in response.content
@@ -246,6 +273,7 @@ def test_candidate_profile_hides_non_visible(client: Client, candidate, hidden_e
 @pytest.mark.django_db
 def test_candidate_profile_blacklist_notice(client: Client, candidate):
     from polium.models import BlacklistHistory
+
     candidate.is_blacklisted = True
     candidate.save()
     BlacklistHistory.objects.create(
@@ -279,7 +307,9 @@ def test_evidence_submit_creates_record(client: Client, player, candidate):
 
 
 @pytest.mark.django_db
-def test_evidence_vote_requires_login(client: Client, player, candidate, visible_evidence):
+def test_evidence_vote_requires_login(
+    client: Client, player, candidate, visible_evidence
+):
     url = reverse("polium:evidence_vote", kwargs={"pk": visible_evidence.pk})
     response = client.post(url, {"is_useful": "true"})
     assert response.status_code == 302
@@ -287,7 +317,9 @@ def test_evidence_vote_requires_login(client: Client, player, candidate, visible
 
 
 @pytest.mark.django_db
-def test_evidence_flag_requires_login(client: Client, player, candidate, visible_evidence):
+def test_evidence_flag_requires_login(
+    client: Client, player, candidate, visible_evidence
+):
     url = reverse("polium:evidence_flag", kwargs={"pk": visible_evidence.pk})
     response = client.post(url, {"reason": "irrelevant"})
     assert response.status_code == 302
@@ -295,10 +327,16 @@ def test_evidence_flag_requires_login(client: Client, player, candidate, visible
 
 
 @pytest.mark.django_db
-def test_evidence_flag_not_mature_shows_message(client: Client, player, candidate, visible_evidence):
+def test_evidence_flag_not_mature_shows_message(
+    client: Client, player, candidate, visible_evidence
+):
     client.force_login(player)
     url = reverse("polium:evidence_flag", kwargs={"pk": visible_evidence.pk})
-    response = client.post(url, {"reason": "irrelevant"}, HTTP_REFERER=f"/candidates/{candidate.sqid}/")
+    response = client.post(
+        url, {"reason": "irrelevant"}, HTTP_REFERER=f"/candidates/{candidate.sqid}/"
+    )
     assert response.status_code == 302
-    follow_response = client.get(response["Location"])
+    # Follow the redirect so the message is rendered and consumed; the response
+    # itself is not asserted on.
+    client.get(response["Location"])
     assert EvidenceFlag.objects.count() == 0

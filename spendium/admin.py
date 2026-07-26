@@ -1,9 +1,316 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.db.models import QuerySet
+from django.http import HttpRequest
 
-from .models import SpendiumWaitlist
+from . import abuse, catalogue
+from .models import (
+    AnonymisedLineItem,
+    EmergencyStop,
+    MetricsSnapshot,
+    AnonymisedPurchase,
+    Manufacturer,
+    MatchConfig,
+    Product,
+    ProductAlias,
+    ProductCategory,
+    ProductUpc,
+    Purchase,
+    PurchaseLineItem,
+    SpendiumWaitlist,
+    Store,
+)
 
 
 @admin.register(SpendiumWaitlist)
 class SpendiumWaitlistAdmin(admin.ModelAdmin):
     list_display = ["email", "created_at"]
     readonly_fields = ["email", "created_at"]
+
+
+@admin.register(Store)
+class StoreAdmin(admin.ModelAdmin):
+    list_display = ["name", "status", "created_at"]
+    list_filter = ["status"]
+    search_fields = ["name"]
+    readonly_fields = ["sqid", "created_at"]
+
+
+@admin.register(Manufacturer)
+class ManufacturerAdmin(admin.ModelAdmin):
+    list_display = ["name", "status", "created_at"]
+    list_filter = ["status"]
+    search_fields = ["name"]
+    readonly_fields = ["sqid", "created_at"]
+
+
+@admin.register(EmergencyStop)
+class EmergencyStopAdmin(admin.ModelAdmin):
+    """The one control somebody unfamiliar with the system needs to find.
+
+    A singleton, so it cannot be added or deleted — there is exactly one row and
+    the changelist goes straight to it. Everything about the presentation is
+    aimed at somebody who arrived here in a hurry.
+    """
+
+    list_display = ["__str__", "stopped_at", "stopped_by", "note"]
+    readonly_fields = ["stopped_at", "stopped_by"]
+    fields = ["is_stopped", "note", "stopped_at", "stopped_by"]
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return not EmergencyStop.objects.exists()
+
+    def has_delete_permission(self, request: HttpRequest, obj: object = None) -> bool:
+        return False
+
+    def changelist_view(self, request: HttpRequest, extra_context=None):
+        # Make sure the row exists, so the list is never empty for somebody
+        # looking for the switch under pressure.
+        EmergencyStop.get()
+        return super().changelist_view(request, extra_context)
+
+    def save_model(self, request: HttpRequest, obj, form, change) -> None:
+        """Record who stopped it, without asking them to fill it in.
+
+        The person pulling this has enough to think about, and whoever asks
+        afterwards will want to know. The model stamps and clears `stopped_at`
+        itself, so only the one fact a request knows is added here.
+        """
+        if obj.is_stopped and obj.stopped_at is None:
+            obj.stopped_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(MatchConfig)
+class MatchConfigAdmin(admin.ModelAdmin):
+    """Singleton. Thresholds are calibration and change as real data arrives.
+
+    Not the emergency stop. `adjudication_candidates = 0` disables Tier 2 only,
+    which is the narrow control for when adjudication specifically is costing too
+    much. To stop all AI spending, use Emergency stop.
+    """
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return not MatchConfig.objects.exists()
+
+    def has_delete_permission(self, request: HttpRequest, obj: object = None) -> bool:
+        return False
+
+
+@admin.register(ProductCategory)
+class ProductCategoryAdmin(admin.ModelAdmin):
+    list_display = ["name", "parent", "is_sensitive"]
+    list_filter = ["is_sensitive"]
+    search_fields = ["name"]
+
+
+class ProductUpcInline(admin.TabularInline):
+    model = ProductUpc
+    extra = 0
+
+
+class ProductAliasInline(admin.TabularInline):
+    model = ProductAlias
+    extra = 0
+    fields = [
+        "raw_text",
+        "store",
+        "status",
+        "confirmation_count",
+        "contradiction_count",
+    ]
+
+
+@admin.register(Product)
+class ProductAdmin(admin.ModelAdmin):
+    list_display = [
+        "canonical_name",
+        "manufacturer",
+        "category",
+        "status",
+        "confidence_source",
+        "merged_into",
+    ]
+    list_filter = ["status", "confidence_source", "category"]
+    search_fields = ["canonical_name", "aliases__raw_text", "upcs__upc"]
+    autocomplete_fields = ["manufacturer", "category", "merged_into"]
+    readonly_fields = ["sqid", "created_at", "updated_at"]
+    inlines = [ProductUpcInline, ProductAliasInline]
+    actions = ["merge_into_oldest"]
+
+    @admin.action(description="Merge selected products into the oldest selected")
+    def merge_into_oldest(
+        self, request: HttpRequest, queryset: QuerySet[Product]
+    ) -> None:
+        """Retire the selected products into the oldest one.
+
+        The oldest record wins because it has had the longest to accumulate
+        aliases and ratings. Aliases and UPCs move across so the losing records'
+        receipt strings keep resolving; ratings are not rewritten, they follow
+        via `resolve_canonical()`, which keeps the merge reversible.
+        """
+        selected = list(queryset.order_by("created_at"))
+        if len(selected) < 2:
+            self.message_user(
+                request,
+                "Select at least two products to merge.",
+                level=messages.WARNING,
+            )
+            return
+
+        target = selected[0].resolve_canonical()
+        merged = 0
+        for loser in selected[1:]:
+            if catalogue.merge_products(loser, target):
+                merged += 1
+            else:
+                self.message_user(
+                    request,
+                    f"Skipped {loser.canonical_name} — merging it would create a cycle.",
+                    level=messages.WARNING,
+                )
+
+        self.message_user(
+            request,
+            f"Merged {merged} product(s) into '{target.canonical_name}'.",
+            level=messages.SUCCESS,
+        )
+
+
+@admin.register(ProductUpc)
+class ProductUpcAdmin(admin.ModelAdmin):
+    list_display = ["upc", "product", "created_at"]
+    search_fields = ["upc", "product__canonical_name"]
+    autocomplete_fields = ["product"]
+
+
+class PurchaseLineItemInline(admin.TabularInline):
+    model = PurchaseLineItem
+    extra = 0
+    fields = [
+        "raw_text",
+        "interpreted_name",
+        "product",
+        "match_tier",
+        "match_confidence",
+        "line_total",
+        "disambiguation_state",
+    ]
+    autocomplete_fields = ["product"]
+
+
+@admin.register(Purchase)
+class PurchaseAdmin(admin.ModelAdmin):
+    list_display = [
+        "__str__",
+        "player",
+        "store",
+        "purchased_at",
+        "total",
+        "anonymise_after",
+    ]
+    list_filter = ["hold_reason", "processing_status", "store", "purchased_at"]
+    search_fields = ["player__username", "store__name"]
+    autocomplete_fields = ["player", "store"]
+    readonly_fields = ["created_at", "image_phash", "image_deleted_at", "held_at"]
+    inlines = [PurchaseLineItemInline]
+    date_hierarchy = "purchased_at"
+    actions = ["release_hold"]
+
+    @admin.action(description="Release hold and award points")
+    def release_hold(self, request: HttpRequest, queryset: QuerySet) -> None:
+        """Clear a hold and pay out.
+
+        A held purchase is a player waiting for points they may well have
+        earned, so this is the queue that should be worked daily rather than
+        when someone remembers.
+        """
+        released = paid = 0
+        for purchase in queryset.exclude(hold_reason=""):
+            amount = abuse.release(purchase)
+            released += 1
+            paid += 1 if amount else 0
+        self.message_user(
+            request,
+            f"Released {released} hold(s); {paid} paid out.",
+            level=messages.SUCCESS,
+        )
+
+
+class AnonymisedLineItemInline(admin.TabularInline):
+    model = AnonymisedLineItem
+    extra = 0
+    can_delete = False
+    readonly_fields = [
+        "raw_text",
+        "interpreted_name",
+        "product",
+        "match_tier",
+        "match_confidence",
+        "quantity",
+        "unit_price",
+        "line_total",
+    ]
+
+    def has_add_permission(self, request: HttpRequest, obj: object = None) -> bool:
+        return False
+
+
+@admin.register(AnonymisedPurchase)
+class AnonymisedPurchaseAdmin(admin.ModelAdmin):
+    """Read-only. There is no player behind these rows and none can be restored."""
+
+    list_display = ["purchase_token", "store", "purchased_at", "total", "anonymised_at"]
+    list_filter = ["store", "purchased_at"]
+    readonly_fields = [
+        "purchase_token",
+        "store",
+        "purchased_at",
+        "total",
+        "anonymised_at",
+    ]
+    inlines = [AnonymisedLineItemInline]
+    date_hierarchy = "purchased_at"
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+
+@admin.register(ProductAlias)
+class ProductAliasAdmin(admin.ModelAdmin):
+    list_display = [
+        "raw_text",
+        "store",
+        "product",
+        "status",
+        "confirmation_count",
+        "contradiction_count",
+        "needs_review",
+        "source",
+    ]
+    list_filter = ["needs_review", "status", "source", "store"]
+    search_fields = ["raw_text", "raw_text_normalised", "product__canonical_name"]
+    autocomplete_fields = ["product", "store"]
+    readonly_fields = ["raw_text_normalised", "created_at", "updated_at"]
+
+
+@admin.register(MetricsSnapshot)
+class MetricsSnapshotAdmin(admin.ModelAdmin):
+    """Read-only history. The question these answer is whether rates are moving."""
+
+    list_display = [
+        "taken_on",
+        "store",
+        "line_items",
+        "alias_hits",
+        "prompts_pending",
+        "unverified_products",
+        "demoted_aliases",
+    ]
+    list_filter = ["store", "taken_on"]
+    date_hierarchy = "taken_on"
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: object = None) -> bool:
+        return False

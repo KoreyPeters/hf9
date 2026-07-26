@@ -9,18 +9,53 @@ class Category(models.Model):
     name = models.CharField(max_length=200)
     description = models.TextField()
     game = models.CharField(max_length=50)
+    criteria_version = models.PositiveIntegerField(
+        default=1,
+        help_text="Bumped whenever the question set changes. Responses record "
+        "the version they were given under, so answers to different questions "
+        "are never averaged together as though they were the same.",
+    )
+    criteria_are_provisional = models.BooleanField(
+        default=True,
+        help_text="True while the criteria are founder-set rather than decided "
+        "by the membership. Shown to players, because members determining the "
+        "criteria is the point of HF and a temporary exception should look like "
+        "one.",
+    )
 
     class Meta:
         verbose_name_plural = "categories"
+
+    def bump_criteria_version(self) -> int:
+        """Record that the question set has changed.
+
+        Ratings under the old and new sets stay distinguishable rather than
+        being silently pooled — a rating means "answers to these questions", and
+        changing the questions changes what the number means.
+        """
+        self.criteria_version += 1
+        self.save(update_fields=["criteria_version"])
+        return self.criteria_version
 
     def __str__(self) -> str:
         return f"{self.game} / {self.name}"
 
 
 class Criterion(models.Model):
-    category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="criteria")
+    category = models.ForeignKey(
+        Category, on_delete=models.PROTECT, related_name="criteria"
+    )
     question = models.TextField()
-    weight = models.DecimalField(max_digits=5, decimal_places=2, default=1.0)
+    weight = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=1.0,
+        help_text="What this criterion is worth, in points per dollar. Set by "
+        "the membership, not by engineering. The ceiling of 999.99 is kept "
+        "deliberately: it is not a limit on what members may decide, but a "
+        "point at which a proposal has to be argued for rather than merely "
+        "entered. Widen the column if that argument is ever won.",
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -41,6 +76,18 @@ class SurveyResponse(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     submitted_at = models.DateTimeField(default=timezone.now)
     submit_count = models.PositiveIntegerField(default=1)
+    is_verified = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="The response was anchored to evidence the platform could "
+        "check — in Spendium, a receipt showing the player actually bought the "
+        "product. Recorded as a flag rather than a link so the anchor survives "
+        "the purchase being anonymised.",
+    )
+    criteria_version = models.PositiveIntegerField(
+        default=1,
+        help_text="The Category.criteria_version in force when this was answered.",
+    )
 
     class Meta:
         indexes = [models.Index(fields=["content_type", "object_id"])]
@@ -50,7 +97,9 @@ class CriterionAnswer(models.Model):
     survey_response = models.ForeignKey(
         SurveyResponse, on_delete=models.CASCADE, related_name="answers"
     )
-    criterion = models.ForeignKey(Criterion, on_delete=models.PROTECT, related_name="answers")
+    criterion = models.ForeignKey(
+        Criterion, on_delete=models.PROTECT, related_name="answers"
+    )
     answer = models.BooleanField()
 
 

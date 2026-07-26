@@ -19,6 +19,8 @@ dependencies = [
     "sqids>=0.5.2",
     "webauthn>=2.7.1",
     "whitenoise>=6.12.0",
+    "rapidfuzz>=3.14.5",
+    "google-genai>=2.14.0",
 ]
 
 [dependency-groups]
@@ -30,6 +32,19 @@ dev = [
     "ruff>=0.15.14",
     "watchfiles>=1.0.0",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# Layered settings are built by star-importing the base tier. Ruff cannot see
+# through the star to know what is defined, so F403/F405 fire on the pattern
+# itself rather than on any actual problem.
+"hf/settings/dev.py" = ["F403", "F405"]
+"hf/settings/prod.py" = ["F403", "F405"]
+# Migrations are generated. Reformatting them creates noise in every diff and
+# makes a regenerated file look hand-edited.
+"*/migrations/*" = ["E501"]
+
+[tool.ruff.format]
+exclude = ["*/migrations/*"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "hf.settings.dev"

@@ -1,16 +1,19 @@
 """Full game-loop GUI test for Polium."""
+
 import pytest
 from playwright.sync_api import Page, expect
 
 from accounts.models import Player
 from accounts.utils import generate_username
-from surveys.models import Category, Criterion, SurveyConfig
+from surveys.models import Category, Criterion
 
 
 @pytest.mark.django_db
 def test_polium_game_loop(live_server, make_logged_in_page):
     # ── Survey setup ─────────────────────────────────────────────────────────
-    politician = Category.objects.create(name="Politician", description="", game="polium")
+    politician = Category.objects.create(
+        name="Politician", description="", game="polium"
+    )
     Criterion.objects.create(category=politician, question="Criteria one", weight=10)
     Criterion.objects.create(category=politician, question="Criteria two", weight=100)
 
@@ -99,9 +102,13 @@ def test_polium_game_loop(live_server, make_logged_in_page):
     p1.get_by_role("link", name="First Election").click()
     expect(p1.locator("h1")).to_contain_text("First Election")
     # Only 1 survey recorded — below k-threshold warning must be visible
-    expect(p1.locator("#election-declare-section")).to_contain_text("Fewer than 5 surveys recorded")
+    expect(p1.locator("#election-declare-section")).to_contain_text(
+        "Fewer than 5 surveys recorded"
+    )
     p1.get_by_role("button", name="Declare").click()
-    expect(p1.locator("#election-declare-section")).to_contain_text("You declared for John Smith1")
+    expect(p1.locator("#election-declare-section")).to_contain_text(
+        "You declared for John Smith1"
+    )
 
     # ── Step 12: Reload and confirm points unchanged at 100 ───────────────────
     # compute_declaration_points returns 0 — no criterion has ≥ 5 responses yet
@@ -193,7 +200,9 @@ def test_polium_game_loop(live_server, make_logged_in_page):
     p2.get_by_role("link", name="First Election").click()
     expect(p2.locator("h1")).to_contain_text("First Election")
     p2.get_by_role("button", name="Declare").click()
-    expect(p2.locator("#election-declare-section")).to_contain_text("You declared for John Smith1")
+    expect(p2.locator("#election-declare-section")).to_contain_text(
+        "You declared for John Smith1"
+    )
 
     # ── Step 12: Reload and confirm points unchanged at 100 ───────────────────
     # compute_declaration_points returns 0 — no criterion has ≥ 5 responses yet
@@ -280,7 +289,9 @@ def test_polium_game_loop(live_server, make_logged_in_page):
     p3.get_by_role("link", name="First Election").click()
     expect(p3.locator("h1")).to_contain_text("First Election")
     p3.get_by_role("button", name="Declare", exact=True).first.click()
-    expect(p3.locator("#election-declare-section")).to_contain_text("You declared for John Smith2")
+    expect(p3.locator("#election-declare-section")).to_contain_text(
+        "You declared for John Smith2"
+    )
 
     # ── Step 12: Reload and confirm points unchanged at 100 ───────────────────
     p3.reload()
@@ -330,11 +341,15 @@ def test_polium_game_loop(live_server, make_logged_in_page):
     expect(p4.locator("h1")).to_contain_text("First Election")
     # First declaration — John Smith1 (last in list; JS2 has higher rating so appears first)
     p4.get_by_role("button", name="Declare", exact=True).last.click()
-    expect(p4.locator("#election-declare-section")).to_contain_text("You declared for John Smith1")
+    expect(p4.locator("#election-declare-section")).to_contain_text(
+        "You declared for John Smith1"
+    )
     # Change declaration to John Smith2 — button now says "Change" since a declaration exists
     p4.get_by_text("Change declaration").click()
     p4.get_by_role("button", name="Change", exact=True).click()
-    expect(p4.locator("#election-declare-section")).to_contain_text("You declared for John Smith2")
+    expect(p4.locator("#election-declare-section")).to_contain_text(
+        "You declared for John Smith2"
+    )
     p4.reload()
     expect(p4.locator(".nav-points")).to_have_text("100 pts")
 
@@ -354,7 +369,9 @@ def test_polium_game_loop(live_server, make_logged_in_page):
 
     # Before surveying: JS1 has 4 surveys — below k=5, worth 0 pts, warning visible
     p5.get_by_role("link", name="First Election").click()
-    expect(p5.locator("#election-declare-section")).to_contain_text("Fewer than 5 surveys recorded")
+    expect(p5.locator("#election-declare-section")).to_contain_text(
+        "Fewer than 5 surveys recorded"
+    )
     expect(p5.locator("#election-declare-section")).to_contain_text("Worth ~0 pts")
 
     # Survey John Smith1 — 5th survey, hits k-threshold exactly
@@ -376,7 +393,9 @@ def test_polium_game_loop(live_server, make_logged_in_page):
 
     # Declare for John Smith1 — first declaration that earns real points
     p5.get_by_role("button", name="Declare", exact=True).last.click()
-    expect(p5.locator("#election-declare-section")).to_contain_text("You declared for John Smith1")
+    expect(p5.locator("#election-declare-section")).to_contain_text(
+        "You declared for John Smith1"
+    )
     expect(p5.locator("#election-declare-section")).to_contain_text("+28 points earned")
     p5.reload()
     expect(p5.locator(".nav-points")).to_have_text("128 pts")
@@ -418,7 +437,9 @@ def test_polium_game_loop(live_server, make_logged_in_page):
 
     # Declare for John Smith1 — earns 25 pts
     p6.get_by_role("button", name="Declare", exact=True).last.click()
-    expect(p6.locator("#election-declare-section")).to_contain_text("You declared for John Smith1")
+    expect(p6.locator("#election-declare-section")).to_contain_text(
+        "You declared for John Smith1"
+    )
     expect(p6.locator("#election-declare-section")).to_contain_text("+25 points earned")
     p6.reload()
     expect(p6.locator(".nav-points")).to_have_text("125 pts")
@@ -427,6 +448,8 @@ def test_polium_game_loop(live_server, make_logged_in_page):
     # Option B: delta = 0 - 25 = -25 pts deducted
     p6.get_by_text("Change declaration").click()
     p6.get_by_role("button", name="Change").click()
-    expect(p6.locator("#election-declare-section")).to_contain_text("You declared for John Smith2")
+    expect(p6.locator("#election-declare-section")).to_contain_text(
+        "You declared for John Smith2"
+    )
     p6.reload()
     expect(p6.locator(".nav-points")).to_have_text("100 pts")

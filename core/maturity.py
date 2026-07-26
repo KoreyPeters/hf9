@@ -11,6 +11,8 @@ if TYPE_CHECKING:
 
 def account_is_mature(player: Player) -> bool:
     cfg = settings.LIFECYCLE
-    age_ok = (timezone.now() - player.date_joined).days >= cfg["MATURITY_ACCOUNT_AGE_DAYS"]
+    age_ok = (timezone.now() - player.date_joined).days >= cfg[
+        "MATURITY_ACCOUNT_AGE_DAYS"
+    ]
     surveys_ok = player.survey_responses.count() >= cfg["MATURITY_SURVEY_COUNT"]
     return age_ok and surveys_ok

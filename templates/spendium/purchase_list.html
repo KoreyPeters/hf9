@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Your receipts — Spendium{% endblock %}
+{% block content %}
+<main style="max-width:800px;margin:0 auto;padding:2rem 1.5rem;font-family:system-ui,sans-serif">
+
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem">
+    <h1 style="font-family:Georgia,serif;font-weight:normal;margin:0">Your receipts</h1>
+    {% if is_member %}
+    <a href="{% url 'spendium:receipt_upload' %}"
+       style="font-size:.875rem;color:#1d4ed8;text-decoration:none">Add a receipt</a>
+    {% endif %}
+  </div>
+
+  {% if purchases %}
+  <table style="width:100%;border-collapse:collapse;font-size:.875rem">
+    <tbody>
+      {% for purchase in purchases %}
+      <tr style="border-top:1px solid #f3f4f6">
+        <td style="padding:.75rem 0;vertical-align:top">
+          <a href="{% url 'spendium:purchase_detail' purchase.pk %}"
+             style="color:#111;text-decoration:none;font-weight:500">
+            {% if purchase.store %}{{ purchase.store.name }}{% else %}Receipt{% endif %}
+          </a>
+          <div style="font-size:.8rem;color:#6b7280;margin-top:.15rem">
+            {{ purchase.purchased_at|date:"j M Y" }}
+            {% if purchase.processing_status == "pending" %}
+              &middot; <span style="color:#b45309">still reading…</span>
+            {% elif purchase.processing_status == "failed" %}
+              &middot; <span style="color:#b91c1c">couldn't be read</span>
+            {% elif purchase.unresolved %}
+              &middot; {{ purchase.unresolved }} to check
+            {% endif %}
+          </div>
+        </td>
+        <td style="padding:.75rem 0;text-align:right;vertical-align:top;white-space:nowrap;color:#374151">
+          {% if purchase.processing_status == "processed" %}
+          {{ purchase.total }}
+          {% if purchase.points_awarded %}
+          <div style="font-size:.8rem;color:#047857">+{{ purchase.points_awarded }} pts</div>
+          {% endif %}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# Deletion is a published commitment, so it lives here rather than being
+     buried. See templates/spendium/privacy.html. #}
+  <div style="margin-top:2.5rem;padding-top:1.5rem;border-top:1px solid #f3f4f6">
+    <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1rem;margin:0 0 .5rem">
+      Your data
+    </h2>
+    <p style="font-size:.8rem;color:#6b7280;margin:0 0 .75rem;line-height:1.5">
+      You can delete your purchase history at any time, independently of your
+      account. Ratings already contributed to a product stay, but nothing
+      remaining is linked to you.
+    </p>
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
+      <a href="{% url 'spendium:purchase_history_export' %}"
+         style="font-size:.8rem;color:#1d4ed8;text-decoration:none">Download a copy</a>
+      <form method="post" action="{% url 'spendium:purchase_history_delete' %}"
+            onsubmit="return confirm('Delete your entire purchase history? This cannot be undone.')"
+            style="margin:0">
+        {% csrf_token %}
+        <button type="submit"
+                style="font-size:.8rem;color:#b91c1c;background:none;border:none;cursor:pointer;padding:0">
+          Delete all purchase history
+        </button>
+      </form>
+    </div>
+  </div>
+
+  {% else %}
+  <p style="color:#6b7280;font-size:.9rem">
+    No receipts yet.
+    {% if is_member %}
+    <a href="{% url 'spendium:receipt_upload' %}" style="color:#1d4ed8">Add your first one.</a>
+    {% else %}
+    Receipt scanning is a member feature.
+    {% endif %}
+  </p>
+  {% endif %}
+
+</main>
+{% endblock %}

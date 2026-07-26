@@ -31,7 +31,9 @@ def registration_options(player: Player) -> dict:
     return json.loads(webauthn.options_to_json(options))
 
 
-def verify_registration(player: Player, credential_json: str, device_name: str = "") -> PasskeyCredential:
+def verify_registration(
+    player: Player, credential_json: str, device_name: str = ""
+) -> PasskeyCredential:
     challenge = cache.get(f"webauthn_reg:{player.pk}")
     if not challenge:
         raise ValueError("Registration session expired.")
@@ -82,7 +84,9 @@ def verify_authentication(credential_json: str) -> Player:
     if not challenge:
         raise ValueError("Authentication session expired.")
     credential_id_bytes = bytes(credential.raw_id)
-    passkey = PasskeyCredential.objects.get(credential_id=credential_id_bytes, player=player)
+    passkey = PasskeyCredential.objects.get(
+        credential_id=credential_id_bytes, player=player
+    )
     verification = webauthn.verify_authentication_response(
         credential=credential,
         expected_challenge=challenge,

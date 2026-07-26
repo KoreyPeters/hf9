@@ -15,7 +15,15 @@ class EvidenceFlagInline(admin.TabularInline):
 
 @admin.register(Evidence)
 class EvidenceAdmin(admin.ModelAdmin):
-    list_display = ("url", "submitted_by", "content_type", "object_id", "status", "net_usefulness_score", "submitted_at")
+    list_display = (
+        "url",
+        "submitted_by",
+        "content_type",
+        "object_id",
+        "status",
+        "net_usefulness_score",
+        "submitted_at",
+    )
     list_filter = ("status",)
     readonly_fields = ("net_usefulness_score", "submitted_at")
     inlines = [EvidenceUsefulnessInline, EvidenceFlagInline]

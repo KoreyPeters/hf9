@@ -33,6 +33,7 @@ def award_points(
     amount: Decimal,
     reason: str,
     source: Model | None = None,
+    description: str = "",
 ) -> Decimal:
     if not player.email_verified:
         return Decimal("0")
@@ -43,7 +44,10 @@ def award_points(
             player=player,
             amount=final_amount,
             reason=reason,
-            content_type=ContentType.objects.get_for_model(source) if source is not None else None,
+            description=description,
+            content_type=ContentType.objects.get_for_model(source)
+            if source is not None
+            else None,
             object_id=source.pk if source is not None else None,
         )
         get_user_model().objects.filter(pk=player.pk).update(

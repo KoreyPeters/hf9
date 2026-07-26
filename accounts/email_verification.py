@@ -20,7 +20,8 @@ def send_verification_email(request: HttpRequest, player: Player) -> None:
     EmailVerification.objects.create(
         player=player,
         token_hash=_hash(raw),
-        expires_at=timezone.now() + timedelta(hours=settings.EMAIL_VERIFICATION_TTL_HOURS),
+        expires_at=timezone.now()
+        + timedelta(hours=settings.EMAIL_VERIFICATION_TTL_HOURS),
     )
     link = request.build_absolute_uri(f"/accounts/verify-email/{raw}/")
     send_mail(
@@ -37,7 +38,9 @@ class VerificationError(Exception):
 
 def verify_email_token(raw: str) -> Player:
     try:
-        record = EmailVerification.objects.select_related("player").get(token_hash=_hash(raw))
+        record = EmailVerification.objects.select_related("player").get(
+            token_hash=_hash(raw)
+        )
     except EmailVerification.DoesNotExist:
         raise VerificationError("Invalid token.")
     if record.verified_at is not None:

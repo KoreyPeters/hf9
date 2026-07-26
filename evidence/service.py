@@ -25,7 +25,9 @@ class AlreadyFlaggedError(Exception):
 def recompute_usefulness_score(evidence: Evidence) -> None:
     useful = evidence.usefulness_votes.filter(is_useful=True).count()
     not_useful = evidence.usefulness_votes.filter(is_useful=False).count()
-    Evidence.objects.filter(pk=evidence.pk).update(net_usefulness_score=useful - not_useful)
+    Evidence.objects.filter(pk=evidence.pk).update(
+        net_usefulness_score=useful - not_useful
+    )
 
 
 def recompute_evidence_status(evidence: Evidence) -> None:
@@ -53,7 +55,9 @@ def submit_evidence(
     )
 
 
-def vote_usefulness(player: Player, evidence: Evidence, is_useful: bool) -> EvidenceUsefulness:
+def vote_usefulness(
+    player: Player, evidence: Evidence, is_useful: bool
+) -> EvidenceUsefulness:
     vote, _ = EvidenceUsefulness.objects.update_or_create(
         player=player,
         evidence=evidence,

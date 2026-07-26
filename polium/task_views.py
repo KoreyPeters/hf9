@@ -30,11 +30,17 @@ def update_candidate_rating(candidate_id: int) -> None:
             threshold = candidate.pre_election_rating_snapshot * Decimal(
                 str(settings.BLACKLIST_RATIO)
             )
-            if new_rating < threshold and candidate.rating_below_threshold_since is None:
+            if (
+                new_rating < threshold
+                and candidate.rating_below_threshold_since is None
+            ):
                 Candidate.objects.filter(pk=candidate_id).update(
                     rating_below_threshold_since=timezone.now()
                 )
-            elif new_rating >= threshold and candidate.rating_below_threshold_since is not None:
+            elif (
+                new_rating >= threshold
+                and candidate.rating_below_threshold_since is not None
+            ):
                 Candidate.objects.filter(pk=candidate_id).update(
                     rating_below_threshold_since=None
                 )

@@ -57,6 +57,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "spendium.context_processors.action_centre_badge",
             ],
         },
     },
@@ -88,7 +89,9 @@ CACHES = {
 }
 
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
+    },
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
@@ -103,10 +106,19 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
 }
+
+# Uploaded files. In production `default` storage is GCS (see prod.py); locally
+# this keeps receipt images out of the working tree root. Nothing here is
+# long-lived — receipt images are deleted within 24 hours of processing.
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.Player"
@@ -176,6 +188,9 @@ SQID_SALTS = {
     "election": config("SQID_SALT_ELECTION"),
     "player": config("SQID_SALT_PLAYER"),
     "jurisdiction": config("SQID_SALT_JURISDICTION"),
+    "manufacturer": config("SQID_SALT_MANUFACTURER"),
+    "product": config("SQID_SALT_PRODUCT"),
+    "store": config("SQID_SALT_STORE"),
 }
 
 LIFECYCLE = {
@@ -190,5 +205,98 @@ POLIUM = {
     "BLACKLIST_MULTIPLIER": config("BLACKLIST_MULTIPLIER", default=0.25, cast=float),
 }
 
+SPENDIUM = {
+    # Independent confirmations required before a product alias is treated as
+    # authoritative and stops prompting. See plans/spendium-product-identity-and-ratings.md.
+    "ALIAS_CONFIRMATIONS_REQUIRED": config(
+        "ALIAS_CONFIRMATIONS_REQUIRED", default=2, cast=int
+    ),
+    # Contradictions from this many distinct players means the string is
+    # genuinely disputed rather than mis-tapped, and needs a human.
+    "ALIAS_REVIEW_CONTRADICTIONS": config(
+        "ALIAS_REVIEW_CONTRADICTIONS", default=2, cast=int
+    ),
+    # Days a purchase stays player-linked. At expiry the row is copied to the
+    # anonymous layer and deleted. This is also the window in which a player may
+    # rate and disambiguate their purchases.
+    "PURCHASE_RETENTION_DAYS": config("PURCHASE_RETENTION_DAYS", default=30, cast=int),
+    # Receipt images are a published commitment: deleted within 24 hours of
+    # processing, regardless of account status. See templates/spendium/privacy.html.
+    "IMAGE_RETENTION_HOURS": config("IMAGE_RETENTION_HOURS", default=24, cast=int),
+    # Receipt extraction. Vertex AI is reached through the Gen AI SDK; the old
+    # vertexai.generative_models path is retired.
+    "GEMINI_MODEL": config("GEMINI_MODEL", default="gemini-2.5-flash"),
+    "GEMINI_LOCATION": config("GEMINI_LOCATION", default="us-central1"),
+    # Extraction is not a creative task — the model should be decisive about
+    # what is printed on the receipt rather than exploratory.
+    "GEMINI_TEMPERATURE": config("GEMINI_TEMPERATURE", default=0.1, cast=float),
+    # Money read off a receipt should reconcile to the cent; the tolerance
+    # absorbs rounding on weight-priced lines, not genuine misreads.
+    "ARITHMETIC_TOLERANCE": config("ARITHMETIC_TOLERANCE", default="0.05"),
+    # A receipt older than the retention window can never be rated, so there is
+    # no point accepting one.
+    "MAX_RECEIPT_AGE_DAYS": config("MAX_RECEIPT_AGE_DAYS", default=30, cast=int),
+    # Upload limits. Phone cameras produce large files, but a receipt does not
+    # need to be one — and the cap is what stops an upload endpoint being used
+    # as free storage.
+    "MAX_UPLOAD_BYTES": config("MAX_UPLOAD_BYTES", default=10 * 1024 * 1024, cast=int),
+    "ALLOWED_UPLOAD_TYPES": ("image/jpeg", "image/png", "image/webp", "image/heic"),
+    # Perceptual hashes within this many bits of each other are treated as the
+    # same receipt. Difference hashing is tolerant of scale and lighting, so a
+    # small distance still means "a photo of the same piece of paper".
+    "DUPLICATE_HASH_DISTANCE": config("DUPLICATE_HASH_DISTANCE", default=5, cast=int),
+    # How far back to look for a duplicate. Long enough to catch a resubmission,
+    # short enough that a genuinely repeated shop is not blocked.
+    "DUPLICATE_LOOKBACK_DAYS": config("DUPLICATE_LOOKBACK_DAYS", default=90, cast=int),
+    # Ratings.
+    # A response not anchored to a receipt still counts, but less. It may be
+    # anyone with an opinion, and it is the first thing a manufacturer disputing
+    # a rating would attack.
+    "UNVERIFIED_RATING_WEIGHT": config("UNVERIFIED_RATING_WEIGHT", default="0.4"),
+    # k-anonymity before an aggregate may be published. Distinct from the
+    # display threshold: this one is about nobody reconstructing an individual
+    # basket from sparse data, not about the number being meaningful.
+    "PUBLISH_K": config("PUBLISH_K", default=10, cast=int),
+    "PUBLISH_K_SENSITIVE": config("PUBLISH_K_SENSITIVE", default=25, cast=int),
+    # The floor on points per dollar, so participating always pays something
+    # even when nothing involved has been rated yet. A floor rather than a
+    # bonus: it is overtaken by real ratings rather than added to them, so it
+    # never inflates a mature payout or muddies the ethical signal.
+    "BASE_POINTS_PER_DOLLAR": config("BASE_POINTS_PER_DOLLAR", default="2"),
+    # What makes a product "hot" — worth interrupting a player about. These are
+    # the plan's open question on hot thresholds: they cannot be set sensibly
+    # before real purchase volume exists, so they are config rather than
+    # constants.
+    "HOT_TRENDING_DAYS": config("HOT_TRENDING_DAYS", default=7, cast=int),
+    "HOT_TRENDING_PURCHASES": config("HOT_TRENDING_PURCHASES", default=25, cast=int),
+    # A rating moving this far, in either direction, means something happened.
+    "HOT_RATING_MOVE": config("HOT_RATING_MOVE", default="0.15"),
+    "HOT_RATING_WINDOW_DAYS": config("HOT_RATING_WINDOW_DAYS", default=30, cast=int),
+    # How long a computed hot flag lasts before it has to re-earn attention.
+    "HOT_DURATION_DAYS": config("HOT_DURATION_DAYS", default=14, cast=int),
+    # Email restraint. One a week at most, and only for things that genuinely
+    # warrant interrupting someone.
+    "ONBOARDING_EMAILS": config("ONBOARDING_EMAILS", default=2, cast=int),
+    "EMAIL_MIN_GAP_DAYS": config("EMAIL_MIN_GAP_DAYS", default=7, cast=int),
+    # Abuse controls. Both hold points for review rather than rejecting the
+    # receipt: the data is still worth having, and a false positive that
+    # delays a reward is recoverable where one that discards a shop is not.
+    "VELOCITY_LIMIT_PER_HOUR": config("VELOCITY_LIMIT_PER_HOUR", default=5, cast=int),
+    # Both snapshot tables gain a row per subject per day, forever. Trends are
+    # read over two years at most, so anything older is storage with no reader.
+    "SNAPSHOT_RETENTION_DAYS": config("SNAPSHOT_RETENTION_DAYS", default=800, cast=int),
+    "HIGH_VALUE_HOLD": config("HIGH_VALUE_HOLD", default="500"),
+    # How the purchase was evidenced. A photographed till roll is worth more
+    # than an unevidenced claim.
+    "VERIFICATION_MULTIPLIERS": {
+        "receipt": "1.0",
+        "qr": "1.0",
+        "self_report": "0.5",
+        "online": "0.5",
+    },
+}
+
 MEMBER_MULTIPLIER: float = config("MEMBER_MULTIPLIER", default=1.5, cast=float)
-SUSTAINING_MEMBER_MULTIPLIER: float = config("SUSTAINING_MEMBER_MULTIPLIER", default=2.0, cast=float)
+SUSTAINING_MEMBER_MULTIPLIER: float = config(
+    "SUSTAINING_MEMBER_MULTIPLIER", default=2.0, cast=float
+)

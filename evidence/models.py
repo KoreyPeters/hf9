@@ -34,13 +34,17 @@ class Evidence(models.Model):
         blank=True,
         related_name="evidence",
     )
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_VISIBLE)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_VISIBLE
+    )
     net_usefulness_score = models.IntegerField(default=0)
     submitted_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         indexes = [
-            models.Index(fields=["content_type", "object_id", "status", "net_usefulness_score"])
+            models.Index(
+                fields=["content_type", "object_id", "status", "net_usefulness_score"]
+            )
         ]
 
     def __str__(self) -> str:
@@ -53,7 +57,9 @@ class EvidenceUsefulness(models.Model):
         on_delete=models.CASCADE,
         related_name="evidence_usefulness_votes",
     )
-    evidence = models.ForeignKey(Evidence, on_delete=models.CASCADE, related_name="usefulness_votes")
+    evidence = models.ForeignKey(
+        Evidence, on_delete=models.CASCADE, related_name="usefulness_votes"
+    )
     is_useful = models.BooleanField()
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -78,7 +84,9 @@ class EvidenceFlag(models.Model):
         on_delete=models.CASCADE,
         related_name="evidence_flags",
     )
-    evidence = models.ForeignKey(Evidence, on_delete=models.CASCADE, related_name="flags")
+    evidence = models.ForeignKey(
+        Evidence, on_delete=models.CASCADE, related_name="flags"
+    )
     reason = models.CharField(max_length=20, choices=REASON_CHOICES)
     created_at = models.DateTimeField(auto_now_add=True)
 

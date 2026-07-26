@@ -66,7 +66,9 @@ def test_should_deprecate_false_just_below_ratio(
 def test_delete_migrates_children_to_winning_jurisdiction(
     jurisdiction: Jurisdiction, player: Player
 ) -> None:
-    child = Jurisdiction.objects.create(name="Child", level="state", parent=jurisdiction)
+    child = Jurisdiction.objects.create(
+        name="Child", level="state", parent=jurisdiction
+    )
     winning = Jurisdiction.objects.create(name="Winning", level="federal")
     JurisdictionDuplicateFlag.objects.create(
         flagging_player=player, flagged_jurisdiction=jurisdiction, points_to=winning

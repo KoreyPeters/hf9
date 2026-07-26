@@ -29,6 +29,13 @@ resource "google_project_iam_member" "app_tasks_enqueuer" {
   member  = "serviceAccount:${google_service_account.app.email}"
 }
 
+# Receipt extraction and Tier 2 adjudication call Gemini through Vertex AI.
+resource "google_project_iam_member" "app_vertex_user" {
+  project = var.project
+  role    = "roles/aiplatform.user"
+  member  = "serviceAccount:${google_service_account.app.email}"
+}
+
 resource "google_project_iam_member" "cloudbuild_ar_writer" {
   project = var.project
   role    = "roles/artifactregistry.writer"

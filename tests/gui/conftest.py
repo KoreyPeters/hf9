@@ -23,14 +23,16 @@ def make_logged_in_page(browser: Browser) -> Callable[[Player], Page]:
         client = Client()
         client.force_login(player)
         session_cookie = client.cookies["sessionid"]
-        context.add_cookies([
-            {
-                "name": "sessionid",
-                "value": session_cookie.value,
-                "domain": "localhost",
-                "path": "/",
-            }
-        ])
+        context.add_cookies(
+            [
+                {
+                    "name": "sessionid",
+                    "value": session_cookie.value,
+                    "domain": "localhost",
+                    "path": "/",
+                }
+            ]
+        )
         return context.new_page()
 
     yield _make

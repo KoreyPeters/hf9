@@ -35,6 +35,7 @@ def magic_link_request(request: HttpRequest) -> HttpResponse:
         return render(request, "accounts/magic_link_request.html")
 
     from .ratelimit import check_rate_limit
+
     if not check_rate_limit(request, "magic_link", limit=10):
         return render(
             request,
@@ -44,7 +45,9 @@ def magic_link_request(request: HttpRequest) -> HttpResponse:
 
     email = request.POST.get("email", "").strip().lower()
     if not email:
-        return render(request, "accounts/magic_link_request.html", {"error": "Email required."})
+        return render(
+            request, "accounts/magic_link_request.html", {"error": "Email required."}
+        )
 
     try:
         player = Player.objects.get(email=email)
@@ -52,6 +55,7 @@ def magic_link_request(request: HttpRequest) -> HttpResponse:
         return redirect(f"/accounts/signup/?email={email}")
 
     from .magic import send_magic_link
+
     send_magic_link(request, player)
     return render(request, "accounts/magic_link_sent.html", {"email": email})
 
@@ -86,10 +90,14 @@ def signup(request: HttpRequest) -> HttpResponse:
         return render(
             request,
             "accounts/signup.html",
-            {"error": "An account with that email already exists.", "prefill_email": email},
+            {
+                "error": "An account with that email already exists.",
+                "prefill_email": email,
+            },
         )
 
     from .utils import generate_username
+
     player = Player.objects.create_user(
         username=generate_username(),
         email=email,
@@ -100,11 +108,13 @@ def signup(request: HttpRequest) -> HttpResponse:
     )
 
     from .email_verification import send_verification_email
+
     send_verification_email(request, player)
 
     from datetime import timedelta
     from django.utils import timezone
     from core.tasks import enqueue
+
     enqueue(
         "verify-email-reminder",
         {"player_id": player.pk},
@@ -124,21 +134,29 @@ def welcome(request: HttpRequest) -> HttpResponse:
 @require_POST
 def resend_verification(request: HttpRequest) -> HttpResponse:
     from .ratelimit import check_rate_limit
+
     if not check_rate_limit(request, "resend_verification", limit=3):
         return render(
             request,
             "accounts/verify_email_resent.html",
-            {"error": "Too many requests. Try again later.", "email": request.user.email},
+            {
+                "error": "Too many requests. Try again later.",
+                "email": request.user.email,
+            },
         )
     if request.user.email_verified:
         return redirect(settings.LOGIN_REDIRECT_URL)
     from .email_verification import send_verification_email
+
     send_verification_email(request, request.user)
-    return render(request, "accounts/verify_email_resent.html", {"email": request.user.email})
+    return render(
+        request, "accounts/verify_email_resent.html", {"email": request.user.email}
+    )
 
 
 def verify_email(request: HttpRequest, token: str) -> HttpResponse:
     from .email_verification import VerificationError, verify_email_token
+
     try:
         verify_email_token(token)
     except VerificationError as e:
@@ -153,7 +171,9 @@ def player_profile(request: HttpRequest, sqid: str) -> HttpResponse:
     from surveys.models import SurveyResponse
 
     profile_player = get_object_or_404(Player, sqid=sqid)
-    is_own_profile = request.user.is_authenticated and request.user.pk == profile_player.pk
+    is_own_profile = (
+        request.user.is_authenticated and request.user.pk == profile_player.pk
+    )
 
     ctx: dict[str, object] = {
         "profile_player": profile_player,
@@ -169,16 +189,18 @@ def player_profile(request: HttpRequest, sqid: str) -> HttpResponse:
 
     # Candidate surveys
     survey_responses = list(
-        SurveyResponse.objects
-        .filter(player=profile_player, content_type=candidate_ct)
-        .order_by("-submitted_at")
+        SurveyResponse.objects.filter(
+            player=profile_player, content_type=candidate_ct
+        ).order_by("-submitted_at")
     )
     sr_ids = [sr.pk for sr in survey_responses]
     candidate_ids = [sr.object_id for sr in survey_responses]
 
     candidates_by_id: dict[int, Candidate] = {
         c.pk: c
-        for c in Candidate.objects.filter(pk__in=candidate_ids).only("pk", "name", "office", "sqid")
+        for c in Candidate.objects.filter(pk__in=candidate_ids).only(
+            "pk", "name", "office", "sqid"
+        )
     }
     sr_points: dict[int, Decimal] = {
         row["object_id"]: row["total"]
@@ -186,7 +208,9 @@ def player_profile(request: HttpRequest, sqid: str) -> HttpResponse:
             player=profile_player,
             content_type=survey_response_ct,
             object_id__in=sr_ids,
-        ).values("object_id").annotate(total=Sum("amount"))
+        )
+        .values("object_id")
+        .annotate(total=Sum("amount"))
     }
 
     survey_rows: list[dict[str, object]] = []
@@ -194,17 +218,18 @@ def player_profile(request: HttpRequest, sqid: str) -> HttpResponse:
         candidate = candidates_by_id.get(sr.object_id)
         if candidate is None:
             continue
-        survey_rows.append({
-            "candidate": candidate,
-            "submitted_at": sr.submitted_at,
-            "submit_count": sr.submit_count,
-            "points_total": sr_points.get(sr.pk),
-        })
+        survey_rows.append(
+            {
+                "candidate": candidate,
+                "submitted_at": sr.submitted_at,
+                "submit_count": sr.submit_count,
+                "points_total": sr_points.get(sr.pk),
+            }
+        )
 
     # Vote declarations
     declarations = list(
-        VoteDeclaration.objects
-        .filter(player=profile_player)
+        VoteDeclaration.objects.filter(player=profile_player)
         .select_related("candidate", "election")
         .order_by("-declared_at")
     )
@@ -218,29 +243,31 @@ def player_profile(request: HttpRequest, sqid: str) -> HttpResponse:
         )
     }
     declaration_rows: list[dict[str, object]] = [
-        {"declaration": d, "points": decl_points.get(d.pk)}
-        for d in declarations
+        {"declaration": d, "points": decl_points.get(d.pk)} for d in declarations
     ]
 
     # Points history — last 50, with source URL resolved
     transactions = list(
-        PointTransaction.objects
-        .filter(player=profile_player)
-        .order_by("-created_at")[:50]
+        PointTransaction.objects.filter(player=profile_player).order_by("-created_at")[
+            :50
+        ]
     )
 
     sr_tx_ids = [
-        t.object_id for t in transactions
+        t.object_id
+        for t in transactions
         if t.content_type_id == survey_response_ct.pk and t.object_id is not None
     ]
     sr_to_candidate_sqid: dict[int, str] = {}
     if sr_tx_ids:
-        srs = list(SurveyResponse.objects.filter(pk__in=sr_tx_ids, content_type=candidate_ct))
+        srs = list(
+            SurveyResponse.objects.filter(pk__in=sr_tx_ids, content_type=candidate_ct)
+        )
         cand_sqids = {
             c.pk: c.sqid
-            for c in Candidate.objects.filter(
-                pk__in=[s.object_id for s in srs]
-            ).only("pk", "sqid")
+            for c in Candidate.objects.filter(pk__in=[s.object_id for s in srs]).only(
+                "pk", "sqid"
+            )
         }
         for sr in srs:
             sqid_val = cand_sqids.get(sr.object_id)
@@ -248,12 +275,15 @@ def player_profile(request: HttpRequest, sqid: str) -> HttpResponse:
                 sr_to_candidate_sqid[sr.pk] = sqid_val
 
     decl_tx_ids = [
-        t.object_id for t in transactions
+        t.object_id
+        for t in transactions
         if t.content_type_id == vote_declaration_ct.pk and t.object_id is not None
     ]
     decl_to_election_sqid: dict[int, str] = {}
     if decl_tx_ids:
-        for d in VoteDeclaration.objects.filter(pk__in=decl_tx_ids).select_related("election"):
+        for d in VoteDeclaration.objects.filter(pk__in=decl_tx_ids).select_related(
+            "election"
+        ):
             if d.election:
                 decl_to_election_sqid[d.pk] = d.election.sqid
 
@@ -273,18 +303,22 @@ def player_profile(request: HttpRequest, sqid: str) -> HttpResponse:
             election_sqid_val = decl_to_election_sqid.get(t.object_id)
             if election_sqid_val:
                 source_url = reverse("polium:election_detail", args=[election_sqid_val])
-        tx_rows.append({
-            "label": reason_labels.get(t.reason, t.reason),
-            "amount": t.amount,
-            "created_at": t.created_at,
-            "source_url": source_url,
-        })
+        tx_rows.append(
+            {
+                "label": reason_labels.get(t.reason, t.reason),
+                "amount": t.amount,
+                "created_at": t.created_at,
+                "source_url": source_url,
+            }
+        )
 
-    ctx.update({
-        "survey_rows": survey_rows,
-        "declaration_rows": declaration_rows,
-        "tx_rows": tx_rows,
-    })
+    ctx.update(
+        {
+            "survey_rows": survey_rows,
+            "declaration_rows": declaration_rows,
+            "tx_rows": tx_rows,
+        }
+    )
     return render(request, "accounts/profile.html", ctx)
 
 
@@ -293,6 +327,7 @@ def player_profile(request: HttpRequest, sqid: str) -> HttpResponse:
 @login_required
 def passkey_register_options(request: HttpRequest) -> JsonResponse:
     from .passkey import registration_options
+
     return JsonResponse(registration_options(request.user))
 
 
@@ -301,6 +336,7 @@ def passkey_register_options(request: HttpRequest) -> JsonResponse:
 @login_required
 def passkey_register_verify(request: HttpRequest) -> JsonResponse:
     from .passkey import verify_registration
+
     body = json.loads(request.body)
     try:
         verify_registration(request.user, json.dumps(body), body.get("deviceName", ""))
@@ -313,6 +349,7 @@ def passkey_register_verify(request: HttpRequest) -> JsonResponse:
 @require_POST
 def passkey_auth_options(request: HttpRequest) -> JsonResponse:
     from .passkey import authentication_options
+
     email = json.loads(request.body).get("email", "")
     try:
         return JsonResponse(authentication_options(email))
@@ -324,6 +361,7 @@ def passkey_auth_options(request: HttpRequest) -> JsonResponse:
 @require_POST
 def passkey_auth_verify(request: HttpRequest) -> JsonResponse:
     from .passkey import verify_authentication
+
     try:
         player = verify_authentication(request.body.decode())
         login(request, player, backend="django.contrib.auth.backends.ModelBackend")

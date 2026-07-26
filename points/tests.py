@@ -37,8 +37,8 @@ def test_award_points_with_source_sets_content_type(player: Player) -> None:
 @pytest.mark.django_db
 def test_award_points_is_atomic(player: Player) -> None:
     with patch("points.service.get_user_model") as mock_get_user_model:
-        mock_get_user_model.return_value.objects.filter.return_value.update.side_effect = (
-            Exception("simulated failure")
+        mock_get_user_model.return_value.objects.filter.return_value.update.side_effect = Exception(
+            "simulated failure"
         )
         with pytest.raises(Exception, match="simulated failure"):
             award_points(player, Decimal("10.00"), "test")
