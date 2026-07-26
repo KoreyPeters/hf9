@@ -83,8 +83,10 @@
   </section>
   {% endif %}
 
-  {# Email preference. Opt-out is a published expectation, so it lives here
-     rather than at the bottom of an email nobody opens. #}
+  {% comment %}
+    Email preference. Opt-out is a published expectation, so it lives here
+    rather than at the bottom of an email nobody opens.
+  {% endcomment %}
   <div style="margin-top:2.5rem;padding-top:1.5rem;border-top:1px solid #f3f4f6">
     <form method="post" action="{% url 'spendium:set_email_preference' %}"
           style="display:flex;align-items:center;gap:.6rem">

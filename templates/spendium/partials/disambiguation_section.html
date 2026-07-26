@@ -77,9 +77,11 @@ not it has been disambiguated.
       </div>
       {% endif %}
 
-      {# Free text. The player held the product, so their own words are the
-         strongest signal available — but they still run through the matching
-         cascade rather than writing to the catalogue directly. #}
+      {% comment %}
+        Free text. The player held the product, so their own words are the
+        strongest signal available — but they still run through the matching
+        cascade rather than writing to the catalogue directly.
+      {% endcomment %}
       <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
         <input type="text"
                data-bind:free_text
