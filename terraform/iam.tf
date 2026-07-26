@@ -29,6 +29,16 @@ resource "google_project_iam_member" "app_tasks_enqueuer" {
   member  = "serviceAccount:${google_service_account.app.email}"
 }
 
+# Enqueuer alone is not enough. Every task the app creates carries an OIDC token
+# minted for hf-tasks, and Cloud Tasks refuses to attach a token for a service
+# account the caller cannot act as. The scheduler jobs never hit this because
+# Terraform's own principal creates those; only the app enqueues at runtime.
+resource "google_service_account_iam_member" "app_actas_tasks" {
+  service_account_id = google_service_account.tasks.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.app.email}"
+}
+
 # Receipt extraction and Tier 2 adjudication call Gemini through Vertex AI.
 resource "google_project_iam_member" "app_vertex_user" {
   project = var.project

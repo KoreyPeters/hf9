@@ -71,14 +71,27 @@ resource "google_cloud_run_v2_service" "app" {
     }
   }
 
-  # The image is owned by CI, not by Terraform. cloudbuild.yaml deploys an
-  # immutable :$SHORT_SHA tag; var.app_image defaults to :latest. Without this,
-  # the two fight — every deploy sets a SHA, every apply reverts it, and
-  # whichever ran last decides what is in production. Worse, :latest is mutable,
-  # so a later apply could silently ship a different build than the one someone
-  # thought they were keeping. Terraform still owns everything else here.
   lifecycle {
-    ignore_changes = [template[0].containers[0].image]
+    ignore_changes = [
+      # The image is owned by CI, not by Terraform. cloudbuild.yaml deploys an
+      # immutable :$SHORT_SHA tag; var.app_image defaults to :latest. Without
+      # this, the two fight — every deploy sets a SHA, every apply reverts it,
+      # and whichever ran last decides what is in production. Worse, :latest is
+      # mutable, so a later apply could silently ship a different build than the
+      # one someone thought they were keeping.
+      template[0].containers[0].image,
+
+      # Deploy residue from the same `gcloud run services update`. It stamps the
+      # tool's name and version onto the resource and writes an all-zero
+      # service-level scaling block; Terraform sets none of them, so it plans to
+      # strip all three. Applying that is a treadmill — the next deploy puts them
+      # straight back — and none of it is behaviour: the zeros are already the
+      # defaults, and this is not template scaling, where max_instance_count = 1
+      # holds SQLite to a single writer. That stays under Terraform's control.
+      client,
+      client_version,
+      scaling,
+    ]
   }
 
 }
@@ -136,14 +149,16 @@ resource "google_cloud_run_v2_job" "migrate" {
     }
   }
 
-  # The image is owned by CI, not by Terraform. cloudbuild.yaml deploys an
-  # immutable :$SHORT_SHA tag; var.app_image defaults to :latest. Without this,
-  # the two fight — every deploy sets a SHA, every apply reverts it, and
-  # whichever ran last decides what is in production. Worse, :latest is mutable,
-  # so a later apply could silently ship a different build than the one someone
-  # thought they were keeping. Terraform still owns everything else here.
   lifecycle {
-    ignore_changes = [template[0].template[0].containers[0].image]
+    ignore_changes = [
+      # Same split of ownership as the service above: CI deploys the SHA tag,
+      # Terraform owns the rest of the job.
+      template[0].template[0].containers[0].image,
+
+      # And the same residue, from `gcloud run jobs update` in the migrate step.
+      client,
+      client_version,
+    ]
   }
 
 }
