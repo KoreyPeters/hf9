@@ -651,10 +651,40 @@ was 4–6 weeks of observation first.*
 
 ### Phase 12 — Documentation
 
-- [ ] Update `spendium-purchase-data-architecture.md` — 30-day window, OLAP write at
+- [x] Update `spendium-purchase-data-architecture.md` — 30-day window, OLAP write at
   anonymisation time
-- [ ] Update `local_only/todo.md` — product ratings no longer Stage 5 deferred
-- [ ] Confirm the privacy policy still matches actual behaviour before launch
+- [x] Update `local_only/todo.md` — product ratings no longer Stage 5 deferred
+- [x] Update the app table in `CLAUDE.local.md`, which still described Spendium as a waitlist
+- [x] Confirm the privacy policy still matches actual behaviour before launch
+
+#### Privacy policy audit — two mismatches, both corrected
+
+Found by comparing each claim against the code rather than against the previous version of the
+policy. Wording approved and applied to both `templates/spendium/privacy.html` and its source
+`local_only/Spendium-Privacy-Policy.md`, which are kept in step by hand.
+
+**1. Purchase record retention.** `privacy.html:138` says purchase records are *"retained while
+your account is active"*. They are not: the player link is destroyed at thirty days and the row
+deleted. Deleting sooner than promised breaches nothing, but the policy misdescribes the system
+and — oddly — claims **weaker** protection than is actually delivered. A player reading it would
+expect to find last spring's shopping in their history, and it will not be there.
+
+Applied wording: *"Purchase records — retained for 30 days, then permanently anonymised so
+they can no longer be linked to you. You can delete your purchase history at any time before
+then via account settings. All purchase records are deleted when you delete your account."*
+
+**2. Survey response deletion.** `privacy.html:140` says *"Individual responses are deleted when
+you delete your account"*. `SurveyResponse.player` is `on_delete=SET_NULL`, so the response
+survives with its player link nulled. That is anonymisation, not deletion — defensible, and
+arguably better for rating integrity, but not what the policy says.
+
+Applied wording: *"Survey responses — retained indefinitely. When you delete your account,
+individual responses are anonymised so they can no longer be linked to you; the ratings they
+contribute to are not retroactively altered."*
+
+Everything else checks out: receipt images are deleted well inside the promised 24 hours,
+`Purchase.player` cascades on account deletion, purchase history is visible and deletable, and
+export returns the full history including raw receipt text.
 
 ### Phase 13 — Review and hardening
 
