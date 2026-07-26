@@ -78,8 +78,13 @@ def send_action_centre_emails() -> None:
                 f"{summary['hot']} product(s) you have bought recently need "
                 f"a look.\n\n{link}\n"
             )
-        send_mail(subject, body, None, [player.email], fail_silently=True)
+        # Recorded before sending, not after. Cloud Tasks retries up to five
+        # times, and a crash between the two would re-email whoever was in
+        # flight. Recording first means a failure costs that player their email
+        # this week instead of sending it twice — the safer way round for mail
+        # nobody asked for.
         action_centre.record_email_sent(player, kind)
+        send_mail(subject, body, None, [player.email], fail_silently=True)
 
 
 @task("snapshot-product-ratings")

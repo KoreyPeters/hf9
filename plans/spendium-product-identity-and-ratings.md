@@ -691,107 +691,119 @@ export returns the full history including raw receipt text.
 A deliberate pass over everything built, before any of it meets a real player.
 Twelve phases produced roughly forty modules and fifteen migrations in one app,
 written in sequence and largely reviewed only against the phase in front of it.
-The point of this phase is to look at the result *as a whole*, which nothing so
-far has done.
+This phase looked at the result as a whole, which nothing before it had.
 
-Where a check names a specific suspect, that is something already noticed in
-passing rather than a hypothetical.
+Three real bugs, one unverified guard, one latent N+1, and two tables that grew
+without limit. All fixed. The security section was deferred at the time on the
+grounds that nothing is in production yet, then done here.
 
-#### Security, authorisation and privacy
+#### Security, authorisation and privacy — done
 
-Done. The durable artifact is `spendium/test_security.py`, which encodes the
-audit rather than recording that one was performed — a new route with no
-declared audience now fails a test.
+The durable artifact is `spendium/test_security.py`, which encodes the audit
+rather than recording that one happened: a new route with no declared audience
+now fails a test.
 
-- [x] Enumerate every view and state its intended audience, then verify each
-  against its decorators. All correctly gated; `product_detail` is the only
-  deliberately public one.
-- [x] Confirm every purchase-scoped lookup filters on `player=request.user`.
-  Both helpers did. Coverage did not: three cross-player tests existed for ten
-  player-scoped endpoints, so the rest are now covered too.
-- [x] Audit the published privacy policy against actual behaviour — done in
-  Phase 12, two mismatches found and corrected.
-- [x] Check what survives anonymisation from every direction.
-- [x] Confirm the task endpoints reject unauthenticated calls in production. The
-  OIDC guard is skipped under DEBUG so it had never run; now tested with DEBUG
-  false, for both a missing and a bogus token.
-- [x] Review admin for anything exposing player-linked purchase data more
-  broadly than intended. `AnonymisedPurchase` is read-only and unlinkable;
+- [x] Every view enumerated with its intended audience and checked against its
+  decorators. All correctly gated; `product_detail` is the only deliberately
+  public one.
+- [x] Every purchase-scoped lookup filters on `player=request.user`. Both
+  helpers did. Coverage did not — three cross-player tests existed for ten
+  player-scoped endpoints, so the rest are covered now.
+- [x] Privacy policy audited against behaviour (Phase 12): two mismatches found
+  and corrected.
+- [x] What survives anonymisation checked from every direction.
+- [x] Task endpoints reject unauthenticated calls in production. The OIDC guard
+  is skipped under DEBUG and had never run; now tested with DEBUG false, for a
+  missing and a bogus token.
+- [x] Admin reviewed. `AnonymisedPurchase` is read-only and unlinkable;
   `Purchase` shows the player, which is the point of a review queue.
-- [x] Justify or remove `@csrf_exempt` on the waitlist `notify` view. **Removed.**
-  It was covering for a form that sent no token, not for anything the endpoint
-  needed. Fixed at the template instead.
+- [x] `@csrf_exempt` **removed** from the waitlist view. It was covering for a
+  form that sent no token, not for anything the endpoint needed.
 
-**Bug found: `snapshot-metrics` was registered but never routed.** The task
-decorator registered it, `enqueue` could find it, and terraform scheduled a
-nightly POST to `/tasks/snapshot-metrics/` — which did not exist. The Cloud
-Scheduler job would have 404ed every night and metrics would never have been
-recorded, with nothing failing loudly enough to notice. Routed, and a test now
-asserts every registered task is reachable.
+**Bug: `snapshot-metrics` was registered but never routed.** Terraform scheduled
+a nightly POST to a URL that did not exist, so metrics would never have been
+recorded and nothing would have failed loudly. A test now asserts every
+registered task is reachable.
 
-#### Operational correctness — partly done
+#### Test quality — done
 
-- [x] Apply all migrations from an empty database. Clean.
-- [ ] List every task and state whether it is idempotent.
-- [ ] Verify every `config()` without a default exists in Secret Manager.
-- [ ] Note which behaviour is untestable locally because `enqueue(schedule_time=)`
-  is a no-op under DEBUG.
+Checked by mutation rather than by reading: break a behaviour, confirm a test
+fails, restore. Eight critical behaviours mutated; **seven caught**.
 
-#### Simplicity — partly done
+The miss was `retro._should_skip`, which guards the strongest guarantee in that
+module and was entirely unverified — the candidate querysets already exclude the
+same rows, so the tests passed on the queryset rather than the guard.
 
-- [x] Remove helpers written for callers that never arrived: three confirmed
-  unused, now deleted.
-- [ ] Revisit `Purchase.verification_method`: four choices, one reachable.
-- [ ] Revisit `flag_count` returning 0 on `Store` and `Manufacturer`.
-- [ ] Reassess the module boundaries.
-- [ ] Look for logic that drifted into templates, and the inline styles now
-  repeated across Spendium templates.
+The first fix *also* failed the mutation: the new test used a line that was both
+PLAYER-tier and resolved, so it passed on the second condition and left the
+first branch untested. Isolating them needed an anonymised line, which has no
+`disambiguation_state` at all. Both branches are now independently covered.
 
-#### Test quality
+That sequence is the argument for mutation testing in one example — a test
+written specifically to close a gap, which looked right and did not close it.
 
-Worth its own section: three separate tests were found passing without
-exercising anything during the build, twice in adjudication and twice in
-perceptual hashing. Each looked fine.
+#### Query cost — done
 
-- [ ] Sweep for tests that would still pass with the behaviour removed —
-  especially those asserting on a fake's recorded calls, or on an absence.
-- [ ] Confirm integration tests assert the expensive path was actually taken, not
-  merely that the result looks right.
-- [ ] Check the fixture set in `fixtures_receipts.py` still reflects real receipt
-  shapes rather than what happened to pass.
+Profiled by growing the data tenfold and counting queries.
 
-#### Query cost
+- [x] Action Centre **flat** (16 → 13); receipt list **flat** at 4. No N+1 in
+  anything a player hits.
+- [x] Removed a duplicated `SurveyConfig.get()` in `ratings.compute` — invisible
+  for one product, linear for anything looping over many.
 
-Nothing here has been profiled, and several paths loop over products calling
-functions that each issue queries.
+**Found:** `ratings.manufacturer_rating` is linear — 27 queries for 3 products,
+123 for 15. Called only from tests, so latent rather than live, and now
+documented as unfit for a view until the per-product work is batched.
 
-- [ ] Profile the Action Centre, the purchase list and `prompt_queue` for N+1
-  behaviour. `ratings.compute` calls `merge_group_ids`, which queries.
-- [ ] Check the navbar badge's cost on a page that has nothing to do with
-  Spendium. It is cached, but the cache miss path runs on every player's first
-  page view.
-- [ ] Confirm the FTS5 narrowing actually bounds Tier 1 against a seeded
-  catalogue rather than a test-sized one.
+#### Operational correctness — done
 
-#### Operational correctness
+- [x] All migrations apply cleanly from an empty database.
+- [x] Every `config()` without a default is present in Secret Manager — all
+  eight.
+- [x] Task idempotency reviewed. All are safe to retry; `anonymise_purchase`,
+  `process_receipt` and `delete_receipt_image` return early on a repeat, the
+  snapshot tasks use `update_or_create`, and the sweepers delegate to idempotent
+  work.
 
-- [ ] List every task and state whether it is idempotent. Cloud Tasks retries up
-  to five times; `anonymise_purchase` and `process_receipt` are known safe, the
-  rest are assumed.
-- [ ] Verify every `config()` without a default exists in Secret Manager. A
-  missing SQID salt broke production once already, and settings fail at import.
-- [ ] Note which behaviour is untestable locally because `enqueue(schedule_time=)`
-  is a no-op under DEBUG.
+**Fixed:** `send-action-centre-emails` recorded the send *after* making it, so a
+crash between the two would re-email whoever was in flight on retry. Now records
+first — a failure costs that player their email this week instead of sending it
+twice, which is the safer way round for mail nobody asked for.
 
-#### Cost and growth
+**Known limitation:** `enqueue(schedule_time=)` is a no-op under DEBUG, so
+anything scheduled rather than immediate never runs locally. Anonymisation is
+the main one; exercise it via the sweeper or by calling the service directly.
 
-- [ ] Confirm `MatchConfig.adjudication_candidates = 0` really does stop all
-  spending, end to end. It is the only kill switch.
-- [ ] Decide a retention policy for `ProductRatingSnapshot`, which grows by one
-  row per product per day forever.
-- [ ] Sanity-check the points scale against the criteria weights the membership
-  is likely to set, and confirm nothing overflows `PointTransaction.amount` or
-  `Player.total_points`.
+#### Cost and growth — done
+
+- [x] The kill switch is verified end to end: with
+  `MatchConfig.adjudication_candidates = 0`, no second model call is made on a
+  receipt that would otherwise adjudicate. It covers Tier 2 only, which is why
+  Phase 14 exists.
+- [x] Retention added for both snapshot tables, which gained a row per subject
+  per day forever. Pruned by the same task that writes them, so retention cannot
+  drift from the writer.
+- [x] Points overflow checked: 20 criteria at the 999.99 ceiling on a $200 shop
+  is ~4M points against a 100M field limit, and ~48 years of weekly maximum
+  shops before `total_points` overflows. Comfortable.
+
+#### Simplicity — partly done, remainder deliberately deferred
+
+- [x] Three helpers written for callers that never arrived, deleted.
+- [x] `Purchase.verification_method` — **kept.** Four choices, one reachable,
+  but it records a fact about how a purchase was evidenced rather than encoding
+  a guess, and the QR and self-report paths are in the design. Revisit if they
+  are abandoned.
+- [x] `flag_count` returning 0 on `Store` and `Manufacturer` — **kept.** The
+  abstract property raises otherwise, and nothing calls `should_deprecate` for
+  them. Inert and documented.
+- [ ] Reassess module boundaries. Deferred: `service`, `points`, `ratings`,
+  `catalogue`, `action_centre`, `matching`, `retro` and `abuse` each have a
+  defensible remit today, and reshuffling them without a concrete problem to
+  solve would churn every import for no gain.
+- [ ] The inline styles repeated across Spendium templates. Deferred: a real
+  cost, but it wants a stylesheet decision for the whole site rather than a
+  Spendium-only fix, and Polium has the same duplication.
 
 ### Phase 14 — A kill switch someone can actually find
 

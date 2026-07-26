@@ -338,3 +338,39 @@ def test_the_review_queue_is_oldest_first(
         held_at=timezone.now() - timedelta(days=1)
     )
     assert list(abuse.held_purchases())[0].pk == first.pk
+
+
+# ── Retention ─────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.django_db
+def test_old_snapshots_are_pruned(shopper: Player, store: Store, settings) -> None:
+    """Both snapshot tables gain a row per subject per day, forever."""
+    from datetime import date
+
+    settings.SPENDIUM = {**settings.SPENDIUM, "SNAPSHOT_RETENTION_DAYS": 30}
+    MetricsSnapshot.objects.create(taken_on=date(2020, 1, 1), store=None)
+    make_line(make_purchase(shopper, store), MatchTier.ALIAS)
+
+    metrics.take_snapshot()
+    assert not MetricsSnapshot.objects.filter(taken_on=date(2020, 1, 1)).exists()
+    assert MetricsSnapshot.objects.filter(store__isnull=True).exists()
+
+
+@pytest.mark.django_db
+def test_rating_snapshots_are_pruned_too(settings) -> None:
+    from datetime import date
+    from decimal import Decimal as D
+
+    from spendium.models import Product, ProductRatingSnapshot
+
+    settings.SPENDIUM = {**settings.SPENDIUM, "SNAPSHOT_RETENTION_DAYS": 30}
+    product = Product.objects.create(canonical_name="X")
+    ProductRatingSnapshot.objects.create(
+        product=product, taken_on=date(2020, 1, 1), score=D("0.500")
+    )
+
+    from spendium import ratings
+
+    ratings.snapshot_all()
+    assert not ProductRatingSnapshot.objects.filter(taken_on=date(2020, 1, 1)).exists()

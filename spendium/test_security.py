@@ -59,6 +59,11 @@ def intruder(db: None) -> Player:
     return Player.objects.create_user(username="intruder", email="in@example.com")
 
 
+@pytest.fixture(autouse=True)
+def isolated_media(settings, tmp_path) -> None:
+    settings.MEDIA_ROOT = tmp_path
+
+
 @pytest.fixture
 def store(db: None) -> Store:
     return Store.objects.create(name="Shoppers Drug Mart")
@@ -313,3 +318,34 @@ def test_the_waitlist_endpoint_enforces_csrf() -> None:
     strict = Client(enforce_csrf_checks=True)
     response = strict.post(reverse("spendium:notify"), {"email": "someone@example.com"})
     assert response.status_code == 403
+
+
+# ── Cost controls ─────────────────────────────────────────────────────────────
+
+
+@pytest.mark.django_db
+def test_disabling_adjudication_stops_the_second_model_call(
+    owner: Player, fake_model
+) -> None:
+    """The only cost control there is, verified end to end.
+
+    A kill switch nobody has pulled is a kill switch nobody knows works. This
+    covers Tier 2 only — extraction still runs on every receipt, which is why
+    Phase 14 exists.
+    """
+    from spendium import service
+    from spendium.models import MatchConfig
+    from spendium.test_extraction import png_bytes, receipt_payload
+
+    config = MatchConfig.get()
+    config.adjudication_candidates = 0
+    config.weak_match_score = 95  # force residuals that would otherwise adjudicate
+    config.noise_floor_score = 10
+    config.save()
+    Product.objects.create(canonical_name="Colgate Cavity Toothpaste Regular")
+
+    client = fake_model(receipt_payload())
+    service.accept_upload(owner, png_bytes(), content_type="image/png")
+
+    # Extraction only. A second call would mean adjudication ran anyway.
+    assert len(client.models.calls) == 1

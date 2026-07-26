@@ -63,6 +63,12 @@ def _should_skip(line: object) -> bool:
     Player decisions are final. A line resolved by the person who bought it is
     the strongest evidence in the system, and re-deriving it from string
     similarity could only ever make it worse.
+
+    Deliberately redundant with the candidate querysets, which exclude the same
+    rows in SQL. That is defence in depth for the strongest guarantee this
+    module makes, and it is tested directly rather than through `run()` — a
+    mutation of this function alone does not fail any test that goes through the
+    queryset, so the guard would otherwise be unverified.
     """
     if line.match_tier == MatchTier.PLAYER:
         return True

@@ -16,6 +16,7 @@ from spendium import retro
 from spendium.models import (
     AnonymisedLineItem,
     AnonymisedPurchase,
+    MatchConfig,
     MatchTier,
     Product,
     ProductAlias,
@@ -332,3 +333,95 @@ def test_lines_are_stamped_even_when_nothing_matches(purchase: Purchase) -> None
     retro.run()
     line.refresh_from_db()
     assert line.retro_checked_at is not None
+
+
+# ── The guard, tested independently of the queryset ───────────────────────────
+
+
+@pytest.mark.django_db
+def test_the_skip_guard_holds_on_its_own(purchase: Purchase, store: Store) -> None:
+    """Exercises `_retro_match_line` directly, bypassing the candidate queryset.
+
+    The querysets already exclude player-resolved rows, so a test that goes
+    through `run()` passes whether or not this guard works — mutating it alone
+    fails nothing. Since the two layers together are what protect the strongest
+    guarantee in the module, the inner one needs its own test.
+    """
+    chosen = Product.objects.create(canonical_name="What The Player Said")
+    other = Product.objects.create(canonical_name="Colgate Toothpaste Whitening")
+    ProductAlias.objects.create(product=other, store=store, raw_text="TP-COLG-250")
+
+    line = make_line(
+        purchase,
+        "TP-COLG-250",
+        product=chosen,
+        match_tier=MatchTier.PLAYER,
+        disambiguation_state=PurchaseLineItem.STATE_RESOLVED,
+    )
+    config = MatchConfig.get()
+
+    assert retro._retro_match_line(line, store, config) is None
+    line.refresh_from_db()
+    assert line.product == chosen
+
+
+@pytest.mark.django_db
+def test_the_skip_guard_also_covers_a_resolved_line_at_another_tier(
+    purchase: Purchase, store: Store
+) -> None:
+    chosen = Product.objects.create(canonical_name="Player's Answer")
+    other = Product.objects.create(canonical_name="Colgate Toothpaste Whitening")
+    ProductAlias.objects.create(product=other, store=store, raw_text="TP-COLG-250")
+
+    line = make_line(
+        purchase,
+        "TP-COLG-250",
+        product=chosen,
+        match_tier=MatchTier.FUZZY,
+        disambiguation_state=PurchaseLineItem.STATE_RESOLVED,
+    )
+    assert retro._retro_match_line(line, store, MatchConfig.get()) is None
+
+
+@pytest.mark.django_db
+def test_the_candidate_querysets_exclude_player_decisions(
+    purchase: Purchase, store: Store
+) -> None:
+    """The outer layer, tested for what it is rather than via its effect."""
+    product = Product.objects.create(canonical_name="Anything")
+    resolved = make_line(
+        purchase,
+        "A",
+        product=product,
+        match_tier=MatchTier.PLAYER,
+        disambiguation_state=PurchaseLineItem.STATE_RESOLVED,
+    )
+    open_line = make_line(purchase, "B")
+
+    candidates = list(retro._purchase_candidates(100))
+    assert open_line in candidates
+    assert resolved not in candidates
+
+
+@pytest.mark.django_db
+def test_the_player_tier_branch_holds_on_its_own(store: Store) -> None:
+    """Isolates the tier check from the resolved-state check.
+
+    An anonymised line has no `disambiguation_state` at all, so the tier branch
+    is the only thing standing between a player's verdict and a re-match. A test
+    using a line that is both PLAYER-tier *and* resolved passes on the second
+    condition and leaves the first unverified — which is what the first attempt
+    at this test did.
+    """
+    chosen = Product.objects.create(canonical_name="What The Player Said")
+    other = Product.objects.create(canonical_name="Colgate Toothpaste Whitening")
+    ProductAlias.objects.create(product=other, store=store, raw_text="TP-COLG-250")
+
+    line = make_anonymised_line(
+        store, "TP-COLG-250", product=chosen, match_tier=MatchTier.PLAYER
+    )
+    assert not hasattr(line, "disambiguation_state")
+
+    assert retro._retro_match_line(line, store, MatchConfig.get()) is None
+    line.refresh_from_db()
+    assert line.product == chosen

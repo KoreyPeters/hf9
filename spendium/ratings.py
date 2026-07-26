@@ -124,21 +124,18 @@ def compute(product: Product) -> ProductRating:
     score = (weighted_sum / total_weight) if total_weight else None
     verified_count = len(verified_ids)
     purchases = purchase_count(product)
+    # Looked up once. Called twice it doubled the config query, which is
+    # invisible for one product and linear for anything looping over many.
+    threshold = SurveyConfig.get().min_survey_threshold
+    enough_responses = score is not None and verified_count >= threshold
 
     return ProductRating(
         score=score,
         response_count=len(responses),
         verified_count=verified_count,
         purchase_count=purchases,
-        displayable=(
-            score is not None
-            and verified_count >= SurveyConfig.get().min_survey_threshold
-        ),
-        publishable=(
-            score is not None
-            and verified_count >= SurveyConfig.get().min_survey_threshold
-            and purchases >= _publish_threshold(product)
-        ),
+        displayable=enough_responses,
+        publishable=enough_responses and purchases >= _publish_threshold(product),
     )
 
 
@@ -162,6 +159,11 @@ def manufacturer_rating(manufacturer: object) -> ProductRating:
     what a pressure campaign addresses — so this aggregates across products
     rather than averaging their scores, which would let a manufacturer dilute a
     bad product by selling many uncontroversial ones.
+
+    **Not yet fit for a view.** This issues a handful of queries per product, so
+    a manufacturer with two hundred products costs well over a thousand. Nothing
+    calls it outside tests today; batching the per-product work is a
+    prerequisite for putting it on a page.
     """
     products = list(
         Product.objects.filter(manufacturer=manufacturer).exclude(
@@ -189,16 +191,15 @@ def manufacturer_rating(manufacturer: object) -> ProductRating:
         purchases += rating.purchase_count
 
     score = (weighted_sum / total_weight) if total_weight else None
+    threshold = SurveyConfig.get().min_survey_threshold
+    enough_responses = score is not None and verified >= threshold
     return ProductRating(
         score=score,
         response_count=responses,
         verified_count=verified,
         purchase_count=purchases,
-        displayable=score is not None
-        and verified >= SurveyConfig.get().min_survey_threshold,
-        publishable=score is not None
-        and verified >= SurveyConfig.get().min_survey_threshold
-        and purchases >= settings.SPENDIUM["PUBLISH_K"],
+        displayable=enough_responses,
+        publishable=enough_responses and purchases >= settings.SPENDIUM["PUBLISH_K"],
     )
 
 
@@ -227,7 +228,23 @@ def snapshot_all() -> int:
             },
         )
         written += 1
+
+    prune_snapshots()
     return written
+
+
+def prune_snapshots() -> int:
+    """Drop snapshots older than the trend window can display.
+
+    Pruned by the same task that writes them, so retention cannot drift away
+    from the thing producing the rows.
+    """
+    from .models import ProductRatingSnapshot
+
+    days: int = settings.SPENDIUM["SNAPSHOT_RETENTION_DAYS"]
+    cutoff = (timezone.now() - timedelta(days=days)).date()
+    removed, _ = ProductRatingSnapshot.objects.filter(taken_on__lt=cutoff).delete()
+    return removed
 
 
 def trend(product: Product, months: int = 24) -> list[tuple[str, Decimal]]:

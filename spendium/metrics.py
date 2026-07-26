@@ -259,4 +259,21 @@ def take_snapshot() -> int:
             taken_on=today, store=store, defaults=_counts_for(lines)
         )
         written += 1
+
+    prune_snapshots()
     return written
+
+
+def prune_snapshots() -> int:
+    """Drop snapshots past the retention window. Same reasoning as ratings."""
+    from datetime import timedelta
+
+    from django.conf import settings as django_settings
+    from django.utils import timezone as django_timezone
+
+    from .models import MetricsSnapshot
+
+    days: int = django_settings.SPENDIUM["SNAPSHOT_RETENTION_DAYS"]
+    cutoff = (django_timezone.now() - timedelta(days=days)).date()
+    removed, _ = MetricsSnapshot.objects.filter(taken_on__lt=cutoff).delete()
+    return removed
