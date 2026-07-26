@@ -70,6 +70,13 @@ def enqueue(
             "body": json.dumps(payload).encode(),
             "oidc_token": {
                 "service_account_email": settings.TASK_SERVICE_ACCOUNT,
+                # Must be stated. Left out, Cloud Tasks mints the token with the
+                # full target URL as its audience, while _verify_oidc checks
+                # against TASK_BASE_URL — so every task 403s and the queue
+                # retries it five times. The Cloud Scheduler jobs set the same
+                # audience explicitly, which is why they were the only tasks
+                # that ever worked.
+                "audience": settings.TASK_BASE_URL,
             },
         }
     }

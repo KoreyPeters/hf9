@@ -67,8 +67,14 @@ resource "google_cloud_run_v2_service" "app" {
 
       resources {
         limits = {
-          cpu    = "1"
-          memory = "512Mi"
+          cpu = "1"
+          # 512Mi was being exceeded in normal use. Dropping to one uvicorn
+          # worker is most of the fix, but the headroom is still needed for the
+          # spike this service is actually built around: MAX_UPLOAD_BYTES allows
+          # a 10MB image, and Pillow decodes that to something far larger before
+          # it can be hashed. The database is also resident here — /data is a
+          # memory-backed volume — and it only grows.
+          memory = "1Gi"
         }
         # Litestream replicates from a background process and flushes a final
         # time on shutdown. Throttling the CPU between requests starves both, so

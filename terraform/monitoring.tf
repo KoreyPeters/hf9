@@ -31,6 +31,86 @@ resource "google_monitoring_notification_channel" "errors" {
   depends_on = [google_project_service.apis]
 }
 
+# The third layer, and the one the other two structurally cannot provide.
+#
+# An OOM kill is a SIGKILL from the platform, so Django never runs and never
+# mails. And the 5xx policy below infers container death from 5xx *responses* —
+# which is only true when the container dies mid-request. Three OOM kills on
+# 2026-07-26 produced no 5xx at all, because the container died between
+# requests, so neither layer said anything and the only trace was a log line
+# nobody was reading.
+#
+# So this watches the log line itself. Cloud Run emits it on every OOM kill
+# regardless of what the process was doing at the time.
+resource "google_logging_metric" "oom_kills" {
+  project = var.project
+  name    = "hf-app-oom-kills"
+  filter = join(" AND ", [
+    "resource.type=\"cloud_run_revision\"",
+    "resource.labels.service_name=\"hf-app\"",
+    "textPayload:\"Memory limit of\"",
+  ])
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+}
+
+resource "google_monitoring_alert_policy" "oom_kill" {
+  count = length(local.alert_emails) > 0 ? 1 : 0
+
+  project      = var.project
+  display_name = "hf-app killed for exceeding its memory limit"
+  combiner     = "OR"
+
+  documentation {
+    content = trimspace(<<-EOT
+      hf-app exceeded its memory limit and was killed.
+
+      Nothing else will tell you: the process is SIGKILLed, so Django cannot
+      mail a traceback, and an OOM between requests produces no 5xx for the
+      response-code alert to catch.
+
+      Check what was in flight. A receipt upload decoding a large image is the
+      expected spike; a steady climb with no uploads is a leak. Raising the
+      memory limit is in terraform/cloud_run.tf, but confirm which of the two it
+      is first -- a leak will simply take longer to reach a higher ceiling.
+    EOT
+    )
+    mime_type = "text/markdown"
+  }
+
+  conditions {
+    display_name = "memory limit exceeded"
+
+    condition_threshold {
+      filter          = "resource.type = \"cloud_run_revision\" AND metric.type = \"logging.googleapis.com/user/${google_logging_metric.oom_kills.name}\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "0s"
+
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_SUM"
+      }
+
+      trigger {
+        count = 1
+      }
+    }
+  }
+
+  alert_strategy {
+    auto_close = "1800s"
+  }
+
+  notification_channels = [
+    for channel in google_monitoring_notification_channel.errors : channel.id
+  ]
+}
+
 resource "google_monitoring_alert_policy" "http_5xx" {
   count = length(local.alert_emails) > 0 ? 1 : 0
 
@@ -64,10 +144,13 @@ resource "google_monitoring_alert_policy" "http_5xx" {
 
       comparison      = "COMPARISON_GT"
       threshold_value = 0
-      # The shortest window the metric supports. A single 500 is worth knowing
-      # about on a site this size; the throttle that matters is on the Django
-      # side, where the volume actually is.
-      duration = "60s"
+      # Zero, not 60s. The intent has always been that a single 500 is worth
+      # knowing about on a site this size, but a duration requires the condition
+      # to *stay* true for that long — which an isolated error never does, so
+      # the policy quietly wanted sustained failure while its comment claimed
+      # otherwise. The alignment period below is the window; this is the dwell
+      # time, and for "tell me about any of them" it has to be zero.
+      duration = "0s"
 
       aggregations {
         alignment_period   = "60s"
