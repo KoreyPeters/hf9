@@ -433,12 +433,16 @@ starting value.
 
 ### Phase 1b — Catalogue seeding
 
-- [ ] Management command importing Open Food Facts, filtered to Canada-available products in
+- [x] Management command importing Open Food Facts, filtered to Canada-available products in
   grocery/pharmacy/household categories
-- [ ] Import as `status=unverified`, `confidence_source=upc_lookup`; populate `ProductUpc`
-- [ ] Strip size tokens from imported names to match the canonical format
-- [ ] Do not write alias rows
-- [ ] Idempotent re-run; report counts created/updated/skipped
+- [x] Import as `status=unverified`, `confidence_source=upc_lookup`; populate `ProductUpc`
+- [x] Strip size tokens from imported names to match the canonical format
+- [x] Do not write alias rows
+- [x] Idempotent re-run; report counts created/updated/skipped
+
+*Reads a downloaded JSONL dump rather than the API: Open Food Facts asks that bulk work
+go through their published exports, and their search endpoint returned 503 when probed.
+Get the dump from https://world.openfoodfacts.org/data.*
 
 ### Phase 2 — Store and purchase models
 
