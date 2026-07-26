@@ -253,6 +253,14 @@ SPENDIUM = {
     # anyone with an opinion, and it is the first thing a manufacturer disputing
     # a rating would attack.
     "UNVERIFIED_RATING_WEIGHT": config("UNVERIFIED_RATING_WEIGHT", default="0.4"),
+    # Receipts a player may scan before membership is required. Membership is
+    # still what pays for scanning; the trial exists so nobody meets that wall
+    # before they have any reason to care about it. Enough for a few weeks of
+    # ordinary shopping — long enough for the loop to prove itself, short enough
+    # to still mean something.
+    "FREE_TRIAL_UPLOADS": config("FREE_TRIAL_UPLOADS", default=10, cast=int),
+    # The display threshold is not here — it lives on `MatchConfig` so it can be
+    # ratcheted from the admin as players arrive, without a deploy.
     # k-anonymity before an aggregate may be published. Distinct from the
     # display threshold: this one is about nobody reconstructing an individual
     # basket from sparse data, not about the number being meaningful.

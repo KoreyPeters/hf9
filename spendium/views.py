@@ -11,18 +11,73 @@ from datastar_py.sse import DatastarEvent
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ObjectDoesNotExist
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Sum
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from points.models import PointTransaction
 from surveys.models import Category, Criterion
 from surveys.service import CoolDownError, submit_survey
 
 from . import action_centre, disambiguation, ratings, service
 from .models import ActionCentreState, Product, Purchase, PurchaseLineItem
+
+
+# The discovery section stays hidden below this many publishable products. A
+# listing of two says "nobody is here" more loudly than no listing at all.
+DISCOVERY_FLOOR = 6
+
+
+def home(request: HttpRequest) -> HttpResponse:
+    """Spendium's front door.
+
+    Three states, following the shape of `polium_home`. The difference is what
+    they are organised around: Polium has elections, which happen whether or not
+    a player turns up, so its home is a calendar. Nothing happens in Spendium
+    except what the player did, so this is a workbench — their own receipts
+    first, and discovery only once there is anything worth discovering.
+
+    Public, because the front page needs somewhere to send people that explains
+    the game before asking them to sign up.
+    """
+    if not request.user.is_authenticated:
+        return render(request, "spendium/home.html", {"state": "anonymous"})
+
+    purchases = Purchase.objects.filter(player=request.user)
+    if not purchases.exists():
+        return render(
+            request,
+            "spendium/home.html",
+            {
+                "state": "no_purchases",
+                "trial_left": service.trial_uploads_left(request.user),
+                "is_member": _is_member(request.user),
+            },
+        )
+
+    top = ratings.top_rated()
+    return render(
+        request,
+        "spendium/home.html",
+        {
+            "state": "active",
+            "purchase_count": purchases.count(),
+            # From the ledger, not from the purchases: a purchase is anonymised
+            # after thirty days and its points are not.
+            "spending_points": PointTransaction.objects.filter(
+                player=request.user, reason="purchase"
+            ).aggregate(total=Sum("amount"))["total"]
+            or 0,
+            "waiting": action_centre.new_item_count(request.user),
+            "recent": purchases.order_by("-created_at")[:3],
+            "trial_left": service.trial_uploads_left(request.user),
+            "is_member": _is_member(request.user),
+            "top_rated": top if len(top) >= DISCOVERY_FLOOR else [],
+        },
+    )
 
 
 def privacy(request: HttpRequest) -> HttpResponse:
@@ -50,16 +105,27 @@ def notify(request: HttpRequest) -> Generator[DatastarEvent, None, None]:
 
 
 def _is_member(player: object) -> bool:
-    """Receipt scanning is a members-only feature.
+    """Membership is what pays for receipt scanning past the free trial.
 
     Not a cost constraint — extraction is cheap per receipt. It is a deliberate
-    product decision to make membership tangibly worth something.
+    product decision to make membership tangibly worth something. See
+    `_may_upload`, which is the gate the views actually use.
     """
     try:
         membership = player.membership
     except ObjectDoesNotExist:
         return False
     return membership.is_active and membership.expires_at > timezone.now()
+
+
+def _may_upload(player: object) -> bool:
+    """Members always; everyone else until the free trial runs out.
+
+    The trial exists because the wall used to arrive before a player had any
+    reason to care about membership — which reads as a bait and switch rather
+    than as a thing worth paying for.
+    """
+    return _is_member(player) or service.trial_uploads_left(player) > 0
 
 
 def _get_purchase(request: HttpRequest, pk: int) -> Purchase:
@@ -206,7 +272,7 @@ def purchase_list(request: HttpRequest) -> HttpResponse:
 
 @login_required
 def receipt_upload(request: HttpRequest) -> HttpResponse:
-    if not _is_member(request.user):
+    if not _may_upload(request.user):
         return render(request, "spendium/upload_members_only.html", status=403)
 
     error = ""
@@ -237,6 +303,8 @@ def receipt_upload(request: HttpRequest) -> HttpResponse:
         {
             "error": error,
             "max_mb": settings.SPENDIUM["MAX_UPLOAD_BYTES"] // (1024 * 1024),
+            "is_member": _is_member(request.user),
+            "trial_left": service.trial_uploads_left(request.user),
         },
     )
 

@@ -63,19 +63,11 @@
             </div>
 
             <div class="game-card">
-                <span class="game-label coming-soon">Coming soon</span>
+                <span class="game-label beta">Beta</span>
                 <h3>Spendium — The Purchasing Game</h3>
-                <p>Rate brands and products against ethical criteria. Shop ethically. Earn points proportional to the
-                    store's ethics rating.</p>
-                <form id="notify-form" class="notify-form" data-on:submit="@post('{% url 'spendium:notify' %}', {contentType: 'form'})">
-                    {% csrf_token %}
-                    <input type="email"
-                           name="email"
-                           required
-                           placeholder="your@email.com"
-                           aria-label="Email address for Spendium launch notification">
-                    <button type="submit" class="btn-primary">Notify me when it launches</button>
-                </form>
+                <p>Photograph a till receipt. We read it, work out what you bought, and pay you points for shopping with
+                    businesses that behave well — and more for telling us what was in the basket.</p>
+                <a href="{% url 'spendium:home' %}" class="btn-primary">Try it — first scans are free</a>
             </div>
 
         </div>

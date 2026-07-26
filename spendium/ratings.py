@@ -74,6 +74,28 @@ def purchase_count(product: Product) -> int:
     )
 
 
+def _min_responses() -> int:
+    """How many verified responses before a rating is worth showing.
+
+    Spendium's own knob rather than `SurveyConfig.min_survey_threshold`, which
+    Polium also reads to decide which criteria count toward its points. The two
+    games start at different times with different amounts of data, and the
+    number that lets a new catalogue show anything at all is not the number that
+    should govern an established one's payouts.
+
+    Admin-editable rather than a settings constant: it is meant to be ratcheted
+    up as players arrive, and needing a deploy each time it moves is how a
+    bootstrapping value stays wrong for a year. Zero means follow the shared
+    value, so nothing changes until it is deliberately set.
+    """
+    from .models import MatchConfig
+
+    configured = MatchConfig.get().min_rating_responses
+    if configured:
+        return configured
+    return SurveyConfig.get().min_survey_threshold
+
+
 def _publish_threshold(product: Product) -> int:
     sensitive = product.category is not None and product.category.is_sensitive
     key = "PUBLISH_K_SENSITIVE" if sensitive else "PUBLISH_K"
@@ -126,7 +148,7 @@ def compute(product: Product) -> ProductRating:
     purchases = purchase_count(product)
     # Looked up once. Called twice it doubled the config query, which is
     # invisible for one product and linear for anything looping over many.
-    threshold = SurveyConfig.get().min_survey_threshold
+    threshold = _min_responses()
     enough_responses = score is not None and verified_count >= threshold
 
     return ProductRating(
@@ -191,7 +213,7 @@ def manufacturer_rating(manufacturer: object) -> ProductRating:
         purchases += rating.purchase_count
 
     score = (weighted_sum / total_weight) if total_weight else None
-    threshold = SurveyConfig.get().min_survey_threshold
+    threshold = _min_responses()
     enough_responses = score is not None and verified >= threshold
     return ProductRating(
         score=score,
@@ -225,6 +247,7 @@ def snapshot_all() -> int:
                 "score": rating.score,
                 "response_count": rating.response_count,
                 "verified_count": rating.verified_count,
+                "purchase_count": rating.purchase_count,
             },
         )
         written += 1
@@ -268,3 +291,42 @@ def response_breakdown(product: Product) -> dict[str, int]:
         "verified": counts["verified"] or 0,
         "unverified": counts["unverified"] or 0,
     }
+
+
+def top_rated(limit: int = 12) -> list:
+    """Publishable products, best first, for a public listing.
+
+    Read from the daily snapshots rather than computed live. `compute` is a
+    handful of queries per product, which is fine on a product page and is not
+    fine on a listing — and the snapshot already holds everything the two gates
+    need.
+
+    Both gates are applied here, not just the display one. A listing is an
+    aggregate publication, so a product bought by too few people to be
+    anonymous must not appear on it however good its score.
+    """
+    from django.db.models import Max, Q
+
+    from .models import Product, ProductRatingSnapshot
+
+    latest = ProductRatingSnapshot.objects.aggregate(Max("taken_on"))["taken_on__max"]
+    if latest is None:
+        return []
+
+    sensitive = Q(product__category__is_sensitive=True)
+    return list(
+        ProductRatingSnapshot.objects.filter(taken_on=latest)
+        .filter(verified_count__gte=_min_responses())
+        .filter(
+            # Sensitive categories carry a higher bar. A null category is not
+            # sensitive, so it falls to the ordinary threshold.
+            (
+                sensitive
+                & Q(purchase_count__gte=settings.SPENDIUM["PUBLISH_K_SENSITIVE"])
+            )
+            | (~sensitive & Q(purchase_count__gte=settings.SPENDIUM["PUBLISH_K"]))
+        )
+        .exclude(product__status=Product.STATUS_RETIRED)
+        .select_related("product", "product__category")
+        .order_by("-score")[:limit]
+    )

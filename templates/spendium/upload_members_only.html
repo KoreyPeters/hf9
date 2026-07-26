@@ -1,18 +1,28 @@
 {% extends "base.html" %}
-{% block title %}Members only — Spendium{% endblock %}
+{% block title %}Free scans used — Spendium{% endblock %}
 {% block content %}
 <main style="max-width:640px;margin:0 auto;padding:2rem 1.5rem;font-family:system-ui,sans-serif">
 
   <h1 style="font-family:Georgia,serif;font-weight:normal;margin:0 0 .5rem">
-    Receipt scanning is for members
+    You have used your free scans
   </h1>
   <p style="color:#6b7280;font-size:.9rem;line-height:1.6;margin:0 0 1rem">
-    Reading receipts is one of the things membership pays for. You can still
-    browse ratings, rate products you have already logged, and take part in
-    everything else without one.
+    Reading receipts is one of the things membership pays for. Everything you
+    have already scanned stays exactly where it is, and you can still browse
+    ratings, rate products you have logged, and take part in everything else
+    without one.
   </p>
-  <a href="{% url 'spendium:purchase_list' %}"
-     style="font-size:.875rem;color:#1d4ed8;text-decoration:none">Back to your receipts</a>
+  <p style="color:#6b7280;font-size:.9rem;line-height:1.6;margin:0 0 1.5rem">
+    Memberships are not on sale yet. When they are, this is where the link will
+    be.
+  </p>
+
+  <div style="display:flex;gap:1rem;align-items:center">
+    <a href="{% url 'spendium:purchase_list' %}"
+       style="font-size:.875rem;color:#1d4ed8;text-decoration:none">Your receipts</a>
+    <a href="{% url 'spendium:home' %}"
+       style="font-size:.875rem;color:#6b7280;text-decoration:none">Spendium home</a>
+  </div>
 
 </main>
 {% endblock %}

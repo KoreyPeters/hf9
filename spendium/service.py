@@ -86,6 +86,30 @@ def find_duplicate(player: Any, phash: str) -> Purchase | None:
     return None
 
 
+def trial_uploads_used(player: object) -> int:
+    """Uploads this player has spent against the free trial.
+
+    Counts attempts rather than successes, with one exception: a receipt we
+    failed to read is our bug, not their allowance, so it does not count. Every
+    other outcome does — otherwise the number left is unpredictable, and a quota
+    a player cannot reason about is worse than no quota.
+
+    Derived rather than stored. A counter on `Player` would have to survive
+    anonymisation, deletion and retries without drifting; this cannot drift, and
+    the query is one indexed count per player.
+    """
+    return (
+        Purchase.objects.filter(player=player)
+        .exclude(processing_status=Purchase.STATUS_FAILED)
+        .count()
+    )
+
+
+def trial_uploads_left(player: object) -> int:
+    allowance: int = settings.SPENDIUM["FREE_TRIAL_UPLOADS"]
+    return max(0, allowance - trial_uploads_used(player))
+
+
 def accept_upload(
     player: Any,
     image_bytes: bytes,

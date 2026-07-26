@@ -30,6 +30,7 @@ MEMBERS_ONLY = "members"
 
 # Every route in spendium/urls.py, and who it is for.
 AUDIENCE = {
+    "home": PUBLIC,
     "notify": PUBLIC,
     "privacy": PUBLIC,
     "product_detail": PUBLIC,
@@ -37,6 +38,7 @@ AUDIENCE = {
     "action_centre": ANY_PLAYER,
     "set_email_preference": ANY_PLAYER,
     "purchase_list": ANY_PLAYER,
+    # Any signed-in player until the free trial is spent, members after.
     "receipt_upload": MEMBERS_ONLY,
     "purchase_history_export": OWNER_ONLY,
     "purchase_history_delete": OWNER_ONLY,
@@ -250,7 +252,11 @@ def test_the_action_centre_shows_only_your_own(
 
 
 @pytest.mark.django_db
-def test_upload_is_refused_without_membership(client, intruder: Player) -> None:
+def test_upload_is_refused_once_the_trial_is_spent(
+    client, intruder: Player, settings
+) -> None:
+    """Membership is still the gate; the trial only moves where it sits."""
+    settings.SPENDIUM = settings.SPENDIUM | {"FREE_TRIAL_UPLOADS": 0}
     client.force_login(intruder)
     assert client.get(reverse("spendium:receipt_upload")).status_code == 403
 

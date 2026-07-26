@@ -232,9 +232,39 @@ def test_list_requires_login(client) -> None:
 
 
 @pytest.mark.django_db
-def test_upload_page_is_refused_without_membership(client, shopper: Player) -> None:
+def test_a_new_player_may_upload_without_membership(client, shopper: Player) -> None:
+    """The free trial. The wall used to be here, before anyone had a reason to
+    care about membership."""
+    client.force_login(shopper)
+    assert client.get(reverse("spendium:receipt_upload")).status_code == 200
+
+
+@pytest.mark.django_db
+def test_upload_is_refused_once_the_trial_is_used_up(
+    client, shopper: Player, settings
+) -> None:
+    settings.SPENDIUM = settings.SPENDIUM | {"FREE_TRIAL_UPLOADS": 2}
+    for _ in range(2):
+        Purchase.objects.create(
+            player=shopper, purchased_at=timezone.now(), total=Decimal("1")
+        )
     client.force_login(shopper)
     assert client.get(reverse("spendium:receipt_upload")).status_code == 403
+
+
+@pytest.mark.django_db
+def test_a_receipt_we_could_not_read_does_not_cost_a_trial_upload(
+    shopper: Player, settings
+) -> None:
+    """Our bug, not their allowance."""
+    settings.SPENDIUM = settings.SPENDIUM | {"FREE_TRIAL_UPLOADS": 2}
+    Purchase.objects.create(
+        player=shopper,
+        purchased_at=timezone.now(),
+        total=Decimal("1"),
+        processing_status=Purchase.STATUS_FAILED,
+    )
+    assert service.trial_uploads_left(shopper) == 2
 
 
 @pytest.mark.django_db
@@ -244,12 +274,25 @@ def test_upload_page_is_open_to_members(client, member: Player) -> None:
 
 
 @pytest.mark.django_db
-def test_an_expired_membership_does_not_count(client, shopper: Player) -> None:
+def test_an_expired_membership_does_not_count(
+    client, shopper: Player, settings
+) -> None:
+    """With the trial spent, an expired membership is no membership at all."""
+    settings.SPENDIUM = settings.SPENDIUM | {"FREE_TRIAL_UPLOADS": 0}
     Membership.objects.create(
         player=shopper, expires_at=timezone.now() - timedelta(days=1)
     )
     client.force_login(shopper)
     assert client.get(reverse("spendium:receipt_upload")).status_code == 403
+
+
+@pytest.mark.django_db
+def test_a_member_keeps_uploading_past_the_trial(
+    client, member: Player, settings
+) -> None:
+    settings.SPENDIUM = settings.SPENDIUM | {"FREE_TRIAL_UPLOADS": 0}
+    client.force_login(member)
+    assert client.get(reverse("spendium:receipt_upload")).status_code == 200
 
 
 @pytest.mark.django_db

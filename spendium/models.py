@@ -422,6 +422,11 @@ class ProductRatingSnapshot(models.Model):
     score = models.DecimalField(max_digits=4, decimal_places=3)
     response_count = models.PositiveIntegerField(default=0)
     verified_count = models.PositiveIntegerField(default=0)
+    # Recorded so a listing can tell whether a rating is publishable without
+    # recomputing it. The k-anonymity gate is about purchases, not responses, so
+    # without this a "best rated" page has to call `ratings.compute` per
+    # candidate — which is what makes such a page too expensive to build.
+    purchase_count = models.PositiveIntegerField(default=0)
 
     class Meta:
         constraints = [
@@ -691,6 +696,19 @@ class MatchConfig(models.Model):
         default=5,
         help_text="Candidates offered per item in the Tier 2 adjudication call. "
         "Set to 0 to disable adjudication entirely.",
+    )
+    # Strictly this is a ratings knob rather than a matching one, and the class
+    # name is now slightly broader than it reads. It lives here because the
+    # alternative was a settings constant, and a threshold meant to be ratcheted
+    # up as players arrive must not need a deploy each time it moves — which is
+    # this class's stated reason for existing. Worth renaming to SpendiumConfig
+    # if a third non-matching knob turns up.
+    min_rating_responses = models.PositiveIntegerField(
+        default=0,
+        help_text="Verified responses before a product rating is shown at all. "
+        "0 means follow the shared survey threshold, which Polium also uses — "
+        "set it here to let a catalogue being bootstrapped show something "
+        "without changing what Polium pays out. Raise it as players arrive.",
     )
     retro_batch_size = models.PositiveIntegerField(
         default=500,
