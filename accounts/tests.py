@@ -314,3 +314,36 @@ def test_player_profile_authenticated_owner_sees_own_profile_flag(client, player
 def test_player_profile_unknown_sqid_returns_404(client):
     resp = client.get("/accounts/profile/xxxx/")
     assert resp.status_code == 404
+
+
+# ── Pages render at all ───────────────────────────────────────────────────────
+#
+# Added after /accounts/login/ reached production returning 500: the template
+# reversed 'socialaccount_login', which allauth 65 does not define, so the page
+# could never have rendered. Every other test here exercises view logic against
+# a page it assumes already works — nothing actually rendered the templates, so
+# a broken tag was invisible until a person clicked the link.
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/accounts/login/",
+        "/accounts/signup/",
+        "/accounts/login/magic/",
+    ],
+)
+def test_anonymous_pages_render(client, path):
+    assert client.get(path).status_code == 200
+
+
+@pytest.mark.django_db
+def test_login_page_offers_both_social_providers(client):
+    """The reverse that broke was for these two links specifically. A bare 200
+    would still pass if the buttons silently vanished."""
+    content = client.get("/accounts/login/").content
+    assert b"Continue with Google" in content
+    assert b"Sign in with Apple" in content
+    assert b"/accounts/google/login/" in content
+    assert b"/accounts/apple/login/" in content
