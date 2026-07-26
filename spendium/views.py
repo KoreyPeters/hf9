@@ -16,7 +16,6 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.utils import timezone
-from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from surveys.models import Category, Criterion
@@ -30,10 +29,17 @@ def privacy(request: HttpRequest) -> HttpResponse:
     return render(request, "spendium/privacy.html")
 
 
-@csrf_exempt
 @require_POST
 @datastar_response
 def notify(request: HttpRequest) -> Generator[DatastarEvent, None, None]:
+    """Public waitlist signup.
+
+    Was csrf_exempt, which was covering for the form not sending a token rather
+    than for any reason the endpoint needed exempting. The harm was small — the
+    worst case is somebody cross-site submitting addresses into a waitlist — but
+    an unauthenticated endpoint that writes to the database has no business
+    skipping the check when the fix is one line in the template.
+    """
     email = request.POST.get("email", "").strip()
     if email:
         from .models import SpendiumWaitlist

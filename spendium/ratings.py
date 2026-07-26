@@ -155,18 +155,6 @@ def player_has_bought(player: object, product: Product) -> bool:
     ).exists()
 
 
-def rateable_products(player: object) -> list[Product]:
-    """Products the player can rate: everything on their live purchases."""
-    ids = (
-        PurchaseLineItem.objects.filter(purchase__player=player, product__isnull=False)
-        .values_list("product_id", flat=True)
-        .distinct()
-    )
-    return list(
-        Product.objects.filter(pk__in=ids).exclude(status=Product.STATUS_RETIRED)
-    )
-
-
 def manufacturer_rating(manufacturer: object) -> ProductRating:
     """Roll a manufacturer's products up into one figure.
 

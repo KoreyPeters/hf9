@@ -699,42 +699,53 @@ passing rather than a hypothetical.
 
 #### Security, authorisation and privacy
 
-The highest-value section, because Spendium holds financial documents and the
-privacy posture is published rather than internal.
+Done. The durable artifact is `spendium/test_security.py`, which encodes the
+audit rather than recording that one was performed — a new route with no
+declared audience now fails a test.
 
-- [ ] Enumerate every view and state its intended audience: public, any player,
-  the owning player, or members only. Then verify each against its decorators.
-  `product_detail` is deliberately public; almost nothing else is.
-- [ ] Confirm every purchase-scoped lookup filters on `player=request.user`.
-  Purchases use sequential primary keys, so that filter is the *only* thing
-  standing between a guessed id and someone else's basket.
-- [ ] Audit the published privacy policy line by line against actual behaviour:
-  24-hour image deletion, 30-day anonymisation, purchase history visible and
-  deletable, export on request. Each is a commitment, not a feature.
-- [ ] Check what survives anonymisation from every direction — ledger entries,
-  aliases, ratings, snapshots, the Action Centre — not just the paths that had
-  tests written for them.
-- [ ] Confirm the task endpoints reject unauthenticated calls in production. The
-  OIDC check is skipped under DEBUG, so it has never actually run in anger.
-- [ ] Review admin for anything exposing player-linked purchase data more
-  broadly than intended.
-- [ ] Justify or remove `@csrf_exempt` on the waitlist `notify` view.
+- [x] Enumerate every view and state its intended audience, then verify each
+  against its decorators. All correctly gated; `product_detail` is the only
+  deliberately public one.
+- [x] Confirm every purchase-scoped lookup filters on `player=request.user`.
+  Both helpers did. Coverage did not: three cross-player tests existed for ten
+  player-scoped endpoints, so the rest are now covered too.
+- [x] Audit the published privacy policy against actual behaviour — done in
+  Phase 12, two mismatches found and corrected.
+- [x] Check what survives anonymisation from every direction.
+- [x] Confirm the task endpoints reject unauthenticated calls in production. The
+  OIDC guard is skipped under DEBUG so it had never run; now tested with DEBUG
+  false, for both a missing and a bogus token.
+- [x] Review admin for anything exposing player-linked purchase data more
+  broadly than intended. `AnonymisedPurchase` is read-only and unlinkable;
+  `Purchase` shows the player, which is the point of a review queue.
+- [x] Justify or remove `@csrf_exempt` on the waitlist `notify` view. **Removed.**
+  It was covering for a form that sent no token, not for anything the endpoint
+  needed. Fixed at the template instead.
 
-#### Simplicity and dead code
+**Bug found: `snapshot-metrics` was registered but never routed.** The task
+decorator registered it, `enqueue` could find it, and terraform scheduled a
+nightly POST to `/tasks/snapshot-metrics/` — which did not exist. The Cloud
+Scheduler job would have 404ed every night and metrics would never have been
+recorded, with nothing failing loudly enough to notice. Routed, and a test now
+asserts every registered task is reachable.
 
-- [ ] Remove helpers written for callers that never arrived. Confirmed unused:
-  `catalogue.resolve_ratings_subject`, `ratings.rateable_products`,
-  `action_centre.product_rating_for`.
-- [ ] Revisit `Purchase.verification_method`: four choices, one reachable. Keep
-  only if the QR and self-report paths are genuinely coming.
-- [ ] Revisit `flag_count` returning 0 on `Store` and `Manufacturer` — inert
-  stubs satisfying an abstract property nothing calls.
-- [ ] Reassess the module boundaries. `service`, `points`, `ratings`,
-  `catalogue`, `action_centre`, `matching`, `retro` grew one phase at a time and
-  the seams may no longer be where they belong — `negative_line_item_ids` has
-  already moved once.
-- [ ] Look for logic that drifted into templates, and for the inline styles now
-  repeated across six Spendium templates.
+#### Operational correctness — partly done
+
+- [x] Apply all migrations from an empty database. Clean.
+- [ ] List every task and state whether it is idempotent.
+- [ ] Verify every `config()` without a default exists in Secret Manager.
+- [ ] Note which behaviour is untestable locally because `enqueue(schedule_time=)`
+  is a no-op under DEBUG.
+
+#### Simplicity — partly done
+
+- [x] Remove helpers written for callers that never arrived: three confirmed
+  unused, now deleted.
+- [ ] Revisit `Purchase.verification_method`: four choices, one reachable.
+- [ ] Revisit `flag_count` returning 0 on `Store` and `Manufacturer`.
+- [ ] Reassess the module boundaries.
+- [ ] Look for logic that drifted into templates, and the inline styles now
+  repeated across Spendium templates.
 
 #### Test quality
 
@@ -764,8 +775,6 @@ functions that each issue queries.
 
 #### Operational correctness
 
-- [ ] Apply all migrations from an empty database. They have only ever been run
-  incrementally.
 - [ ] List every task and state whether it is idempotent. Cloud Tasks retries up
   to five times; `anonymise_purchase` and `process_receipt` are known safe, the
   rest are assumed.
@@ -783,3 +792,43 @@ functions that each issue queries.
 - [ ] Sanity-check the points scale against the criteria weights the membership
   is likely to set, and confirm nothing overflows `PointTransaction.amount` or
   `Player.total_points`.
+
+### Phase 14 — A kill switch someone can actually find
+
+Requested 2026-07-26. To be built after Phase 13.
+
+The test is a new hire, on their first day, who has just been told the bill is
+running away and is the only person available. They should be able to stop the
+spending without reading the codebase, asking anyone, or knowing what a "tier"
+is.
+
+Today the control is `MatchConfig.adjudication_candidates = 0`, which fails that
+test on every count: it is one unlabelled integer among eight in a form called
+"Matching configuration", its help text explains *what* it does rather than
+*when you would want it*, and nothing indicates it is the emergency lever.
+
+**It is also the wrong lever.** Adjudication only runs on the residual that
+Tiers 0 and 1 miss — a minority of lines on a minority of receipts. Extraction
+runs on **every uploaded receipt**, so it is almost certainly the larger bill
+and the more likely thing to be running away. Setting
+`adjudication_candidates = 0` while extraction keeps going would look like
+pulling the switch and watching the meter keep spinning, which is worse than
+having no switch at all.
+
+- [ ] A single obvious control that stops **all** model spending: extraction and
+  adjudication together, not just Tier 2.
+- [ ] Reachable from the admin index without knowing which model holds it.
+  Named for the situation, not the mechanism — the person looking for it is
+  searching for "stop", not for "MatchConfig".
+- [ ] States plainly what happens while it is on: uploads are still accepted and
+  still queued, receipts are simply not read until it is switched off. Nothing
+  is lost, no player data is discarded, and no points are wrongly awarded
+  because unprocessed receipts never reach the points step.
+- [ ] Equally obvious to switch back off, and says who turned it on and when —
+  the panicked hire should not also be the person who has to explain it later.
+- [ ] Queued receipts resume when it is cleared, rather than needing a manual
+  re-run.
+- [ ] Tests: with it on, no model client is constructed by any path — upload,
+  reprocessing, or retro-matching.
+- [ ] Consider a second, narrower control for adjudication alone, since that is
+  the one whose cost scales with catalogue immaturity rather than with usage.

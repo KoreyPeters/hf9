@@ -29,7 +29,6 @@ from django.utils import timezone
 
 from surveys.models import SurveyResponse
 
-from . import ratings
 from .models import (
     ActionCentreState,
     Product,
@@ -322,7 +321,3 @@ def rateable_summary(player: object) -> dict[str, int]:
         "unrated": len(centre.unrated),
         "total": centre.total,
     }
-
-
-def product_rating_for(product: Product) -> ratings.ProductRating:
-    return ratings.compute(product)

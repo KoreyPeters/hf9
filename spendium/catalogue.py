@@ -7,8 +7,6 @@ the one queue it promised would stay small — so this closes the common case
 automatically and leaves humans only the genuinely contested ones.
 """
 
-from typing import Any
-
 from django.db.models import QuerySet
 from rapidfuzz import fuzz
 
@@ -133,8 +131,3 @@ def aliases_needing_review() -> QuerySet[ProductAlias]:
 
 def review_queue_size() -> int:
     return aliases_needing_review().count()
-
-
-def resolve_ratings_subject(product: Any) -> Product:
-    """The record a rating should be attributed to."""
-    return product.resolve_canonical()

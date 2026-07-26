@@ -47,6 +47,11 @@ urlpatterns = [
         name="task_recompute_hotness",
     ),
     path(
+        "snapshot-metrics/",
+        spendium_task_views.snapshot_metrics,
+        name="task_snapshot_metrics",
+    ),
+    path(
         "send-action-centre-emails/",
         spendium_task_views.send_action_centre_emails,
         name="task_send_action_centre_emails",
