@@ -173,6 +173,29 @@ class Product(SqidMixin):
         help_text="Reserved for the case where a product changes formulation "
         "under the same name. Not yet acted on.",
     )
+    HOT_TRENDING = "trending"
+    HOT_RATING_MOVED = "rating_moved"
+    HOT_MANUAL = "manual"
+    HOT_REASON_CHOICES = [
+        (HOT_TRENDING, "Being bought unusually often"),
+        (HOT_RATING_MOVED, "Rating has moved sharply"),
+        (HOT_MANUAL, "Flagged by an admin"),
+    ]
+
+    hot_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="When this product became worth players' attention. Recomputed "
+        "daily, except where an admin has flagged it manually.",
+    )
+    hot_reason = models.CharField(max_length=20, choices=HOT_REASON_CHOICES, blank=True)
+    hot_is_manual = models.BooleanField(
+        default=False,
+        help_text="Set by an admin for a recall or safety event. Survives the "
+        "daily recompute, because the situations that need it are exactly the "
+        "ones no metric will have noticed yet.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -181,6 +204,10 @@ class Product(SqidMixin):
             models.Index(fields=["status"]),
             models.Index(fields=["canonical_name"]),
         ]
+
+    @property
+    def is_hot(self) -> bool:
+        return self.hot_since is not None
 
     def generate_sqid(self) -> str:
         return Sqids(alphabet=settings.SQID_SALTS["product"]).encode([self.pk])
@@ -406,6 +433,43 @@ class ProductRatingSnapshot(models.Model):
 
     def __str__(self) -> str:
         return f"{self.product.canonical_name} @ {self.taken_on}: {self.score}"
+
+
+class ActionCentreState(models.Model):
+    """What a player has already seen, and what they have agreed to be sent.
+
+    Separate from the Action Centre's contents, which are always derived. The
+    badge is about *novelty*, and novelty is a fact about the player rather than
+    about any item — which is why it cannot be stored on the items themselves.
+    """
+
+    player = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="action_centre_state",
+    )
+    last_visited_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Visiting clears the badge. It returns only when something "
+        "genuinely new arrives, so it never becomes a permanent nag about items "
+        "the player has already decided to ignore.",
+    )
+    emails_enabled = models.BooleanField(
+        default=True,
+        help_text="Opt-out is honoured immediately and permanently — including "
+        "for the onboarding sequence.",
+    )
+    onboarding_emails_sent = models.PositiveIntegerField(default=0)
+    last_email_at = models.DateTimeField(null=True, blank=True)
+
+    @classmethod
+    def get_for(cls, player: object) -> "ActionCentreState":
+        state, _ = cls.objects.get_or_create(player=player)
+        return state
+
+    def __str__(self) -> str:
+        return f"Action centre state for {self.player}"
 
 
 class AliasConfirmation(models.Model):

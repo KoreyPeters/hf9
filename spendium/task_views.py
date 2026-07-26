@@ -20,6 +20,56 @@ def sweep_purchase_anonymisation() -> None:
         service.anonymise_purchase(purchase_id)
 
 
+@task("recompute-hotness")
+def recompute_hotness() -> None:
+    """Refresh which products are worth interrupting players about.
+
+    Nightly. Manual admin flags survive this, because the situations that need
+    them — a recall, a safety event — are exactly the ones no purchase-volume
+    metric will have noticed yet.
+    """
+    from . import action_centre
+
+    action_centre.recompute_hotness()
+
+
+@task("send-action-centre-emails")
+def send_action_centre_emails() -> None:
+    """At most one email per player per week, and only when warranted.
+
+    Routine items never qualify. Emailing about housekeeping is how a mailing
+    list teaches people to ignore it, and then the one that mattered goes
+    unread too.
+    """
+    from django.core.mail import send_mail
+    from django.urls import reverse
+
+    from . import action_centre
+
+    for player in action_centre.players_with_live_purchases():
+        kind = action_centre.email_due(player)
+        if kind is None or not player.email:
+            continue
+        summary = action_centre.rateable_summary(player)
+        url = reverse("spendium:action_centre")
+        link = f"https://humanflourish.ing{url}"
+        if kind == "onboarding":
+            subject = "Your Spendium action centre"
+            body = (
+                "Everything waiting for you lives in one place.\n\n"
+                f"Right now: {summary['total']} item(s).\n\n"
+                f"{link}\n"
+            )
+        else:
+            subject = "Something changed on a product you bought"
+            body = (
+                f"{summary['hot']} product(s) you have bought recently need "
+                f"a look.\n\n{link}\n"
+            )
+        send_mail(subject, body, None, [player.email], fail_silently=True)
+        action_centre.record_email_sent(player, kind)
+
+
 @task("snapshot-product-ratings")
 def snapshot_product_ratings() -> None:
     """Record today's rating for every product.

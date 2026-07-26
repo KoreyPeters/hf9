@@ -66,6 +66,55 @@ resource "google_cloud_scheduler_job" "sweep_purchase_anonymisation" {
   }
 }
 
+# Which products are worth interrupting players about. Runs after the rating
+# snapshot, since one of the signals is a rating having moved sharply and that
+# comparison needs the day's snapshot to exist. Manual admin flags survive it.
+resource "google_cloud_scheduler_job" "recompute_hotness" {
+  name             = "hf-recompute-hotness"
+  project          = var.project
+  region           = var.region
+  schedule         = "0 6 * * *"
+  time_zone        = "UTC"
+  attempt_deadline = "600s"
+
+  depends_on = [google_project_service.apis]
+
+  http_target {
+    uri         = "https://humanflourish.ing/tasks/recompute-hotness/"
+    http_method = "POST"
+
+    oidc_token {
+      service_account_email = google_service_account.tasks.email
+      audience              = "https://humanflourish.ing"
+    }
+  }
+}
+
+# Action centre emails. Weekly, not daily — the task itself enforces at most one
+# per player per week, but running it daily would mean a player who became
+# eligible on a Tuesday waited a day for no reason while adding six pointless
+# sweeps. Routine items never qualify for an email at all.
+resource "google_cloud_scheduler_job" "action_centre_emails" {
+  name             = "hf-action-centre-emails"
+  project          = var.project
+  region           = var.region
+  schedule         = "0 15 * * 2"
+  time_zone        = "UTC"
+  attempt_deadline = "1800s"
+
+  depends_on = [google_project_service.apis]
+
+  http_target {
+    uri         = "https://humanflourish.ing/tasks/send-action-centre-emails/"
+    http_method = "POST"
+
+    oidc_token {
+      service_account_email = google_service_account.tasks.email
+      audience              = "https://humanflourish.ing"
+    }
+  }
+}
+
 # Daily rating snapshots. Ratings are computed over a rolling twelve-month
 # window, so a past value cannot be reconstructed later — the responses behind it
 # age out. Recording them as they happen is the only way to show a trend. A

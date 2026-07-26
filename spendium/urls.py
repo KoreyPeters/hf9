@@ -13,6 +13,12 @@ urlpatterns = [
         views.submit_product_survey,
         name="submit_product_survey",
     ),
+    path("actions/", views.action_centre_view, name="action_centre"),
+    path(
+        "actions/email-preference/",
+        views.set_email_preference,
+        name="set_email_preference",
+    ),
     path("receipts/", views.purchase_list, name="purchase_list"),
     path("receipts/upload/", views.receipt_upload, name="receipt_upload"),
     path(

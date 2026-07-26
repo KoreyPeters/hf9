@@ -22,8 +22,8 @@ from django.views.decorators.http import require_POST
 from surveys.models import Category, Criterion
 from surveys.service import CoolDownError, submit_survey
 
-from . import disambiguation, ratings, service
-from .models import Product, Purchase, PurchaseLineItem
+from . import action_centre, disambiguation, ratings, service
+from .models import ActionCentreState, Product, Purchase, PurchaseLineItem
 
 
 def privacy(request: HttpRequest) -> HttpResponse:
@@ -340,3 +340,35 @@ def submit_product_survey(request: HttpRequest, sqid: str) -> DatastarResponse:
             html, selector="#product-rating-section"
         )
     )
+
+
+# ── Action Centre ─────────────────────────────────────────────────────────────
+
+
+@login_required
+def action_centre_view(request: HttpRequest) -> HttpResponse:
+    """Everything the player has outstanding.
+
+    Visiting clears the badge. That is the whole contract: the badge means
+    "something new", and looking is what makes it not new any more.
+    """
+    centre = action_centre.build(request.user)
+    action_centre.mark_visited(request.user)
+    return render(
+        request,
+        "spendium/action_centre.html",
+        {
+            "centre": centre,
+            "state": ActionCentreState.get_for(request.user),
+        },
+    )
+
+
+@login_required
+@require_POST
+def set_email_preference(request: HttpRequest) -> HttpResponse:
+    """Opt out, or back in. Honoured immediately."""
+    state = ActionCentreState.get_for(request.user)
+    state.emails_enabled = request.POST.get("emails_enabled") == "on"
+    state.save(update_fields=["emails_enabled"])
+    return redirect("spendium:action_centre")

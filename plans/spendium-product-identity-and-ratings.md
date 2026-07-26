@@ -612,9 +612,14 @@ a store's, and both need to exist first.
 
 ### Phase 10 — Action Centre
 
-- [ ] Aggregate page: hot products, unresolved disambiguations, unrated products
-- [ ] Navbar badge for genuinely new items, cleared on visit
-- [ ] Email rules: onboarding sequence, then high-priority triggers only, max one per week
+- [x] Aggregate page: hot products, unresolved disambiguations, unrated products
+- [x] Navbar badge for genuinely new items, cleared on visit
+- [x] Email rules: onboarding sequence, then high-priority triggers only, max one per week
+
+*Hot thresholds were the plan's open question #1 and remain uncalibrated, so they are
+config rather than constants: trending volume, rating movement, and how long a computed
+flag lasts. Admin flags are exempt from the nightly recompute — a recall is exactly what
+no volume metric will have noticed yet.*
 
 ### Phase 11 — Metrics and abuse controls
 

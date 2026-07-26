@@ -57,6 +57,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "spendium.context_processors.action_centre_badge",
             ],
         },
     },
@@ -262,6 +263,21 @@ SPENDIUM = {
     # bonus: it is overtaken by real ratings rather than added to them, so it
     # never inflates a mature payout or muddies the ethical signal.
     "BASE_POINTS_PER_DOLLAR": config("BASE_POINTS_PER_DOLLAR", default="2"),
+    # What makes a product "hot" — worth interrupting a player about. These are
+    # the plan's open question on hot thresholds: they cannot be set sensibly
+    # before real purchase volume exists, so they are config rather than
+    # constants.
+    "HOT_TRENDING_DAYS": config("HOT_TRENDING_DAYS", default=7, cast=int),
+    "HOT_TRENDING_PURCHASES": config("HOT_TRENDING_PURCHASES", default=25, cast=int),
+    # A rating moving this far, in either direction, means something happened.
+    "HOT_RATING_MOVE": config("HOT_RATING_MOVE", default="0.15"),
+    "HOT_RATING_WINDOW_DAYS": config("HOT_RATING_WINDOW_DAYS", default=30, cast=int),
+    # How long a computed hot flag lasts before it has to re-earn attention.
+    "HOT_DURATION_DAYS": config("HOT_DURATION_DAYS", default=14, cast=int),
+    # Email restraint. One a week at most, and only for things that genuinely
+    # warrant interrupting someone.
+    "ONBOARDING_EMAILS": config("ONBOARDING_EMAILS", default=2, cast=int),
+    "EMAIL_MIN_GAP_DAYS": config("EMAIL_MIN_GAP_DAYS", default=7, cast=int),
     # How the purchase was evidenced. A photographed till roll is worth more
     # than an unevidenced claim.
     "VERIFICATION_MULTIPLIERS": {

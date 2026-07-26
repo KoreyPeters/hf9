@@ -42,6 +42,16 @@ urlpatterns = [
     ),
     path("retro-match/", spendium_task_views.retro_match, name="task_retro_match"),
     path(
+        "recompute-hotness/",
+        spendium_task_views.recompute_hotness,
+        name="task_recompute_hotness",
+    ),
+    path(
+        "send-action-centre-emails/",
+        spendium_task_views.send_action_centre_emails,
+        name="task_send_action_centre_emails",
+    ),
+    path(
         "snapshot-product-ratings/",
         spendium_task_views.snapshot_product_ratings,
         name="task_snapshot_product_ratings",

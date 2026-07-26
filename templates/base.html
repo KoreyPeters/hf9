@@ -43,6 +43,9 @@
 
         {% if user.is_authenticated %}
           <span class="nav-sep"></span>
+          <a href="{% url 'spendium:action_centre' %}" class="nav-link">
+            Actions{% if spendium_new_actions %} <span class="nav-badge">{{ spendium_new_actions }}</span>{% endif %}
+          </a>
           <span class="nav-points">{{ user.total_points|floatformat:0 }} pts</span>
           <a href="{% url 'accounts:player_profile' user.sqid %}" class="nav-link nav-link--user">{{ user.display_label }}</a>
           <form method="post" action="{% url 'accounts:logout' %}" class="nav-signout">

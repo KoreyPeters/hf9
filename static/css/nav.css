@@ -185,3 +185,19 @@ body {
 
   .nav-signout { display: block; width: 100%; }
 }
+
+/* Action Centre badge. Present only when something is genuinely new — it
+   clears on visit rather than persisting as a standing reproach. */
+.nav-badge {
+  display: inline-block;
+  min-width: 1.1rem;
+  padding: 0 .35rem;
+  margin-left: .15rem;
+  border-radius: 99px;
+  background: #b91c1c;
+  color: #fff;
+  font-size: .7rem;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+}
