@@ -11,6 +11,7 @@ urlpatterns = [
     path("verify-email-reminder/", accounts_task_views.send_verification_reminder, name="task_verify_email_reminder"),
     path("anonymise-purchase/", spendium_task_views.anonymise_purchase, name="task_anonymise_purchase"),
     path("sweep-purchase-anonymisation/", spendium_task_views.sweep_purchase_anonymisation, name="task_sweep_purchase_anonymisation"),
+    path("process-receipt/", spendium_task_views.process_receipt, name="task_process_receipt"),
     path("delete-receipt-image/", spendium_task_views.delete_receipt_image, name="task_delete_receipt_image"),
     path("sweep-receipt-images/", spendium_task_views.sweep_receipt_images, name="task_sweep_receipt_images"),
 ]

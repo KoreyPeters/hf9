@@ -41,35 +41,133 @@ def _resolve_store(store_name: str) -> Store | None:
     return existing or Store.objects.create(name=name)
 
 
-@atomic
-def record_receipt(
+class DuplicateReceiptError(RuntimeError):
+    """This player has already uploaded a photo of this receipt."""
+
+
+class UnsupportedImageError(RuntimeError):
+    """The upload is not an image we can read."""
+
+
+def find_duplicate(player: Any, phash: str) -> Purchase | None:
+    """A recent purchase by this player that looks like the same receipt.
+
+    Perceptual hashes are compared by Hamming distance, not equality. Two photos
+    of one receipt never produce identical bytes — or identical hashes — so an
+    exact-match check would never fire on the behaviour it exists to catch.
+
+    Scoped to the uploading player. Two people can legitimately buy the same
+    things at the same shop, and a global check would punish them for it.
+    """
+    threshold: int = settings.SPENDIUM["DUPLICATE_HASH_DISTANCE"]
+    lookback: int = settings.SPENDIUM["DUPLICATE_LOOKBACK_DAYS"]
+    cutoff = timezone.now() - timedelta(days=lookback)
+
+    recent = Purchase.objects.filter(player=player, created_at__gte=cutoff).exclude(
+        image_phash=""
+    )
+    for candidate in recent:
+        try:
+            if imaging.hamming_distance(candidate.image_phash, phash) <= threshold:
+                return candidate
+        except ValueError:
+            continue
+    return None
+
+
+def accept_upload(
     player: Any,
     image_bytes: bytes,
     filename: str = "receipt.jpg",
-    mime_type: str = "image/jpeg",
-    client: Any | None = None,
+    content_type: str = "image/jpeg",
 ) -> Purchase:
-    """Extract a receipt, match its line items, and persist the purchase.
+    """Take an uploaded image and queue it for reading.
 
-    The image is stored so the extraction step has something to read, hashed for
-    duplicate detection, and then queued for deletion straight away. The hash is
-    taken before anything else, because it is the only part of the image that
-    survives and losing it would disable the duplicate check permanently.
+    Deliberately does no extraction. Reading a receipt costs one or two model
+    calls, which is far too long to hold a request open, so this does only what
+    must happen synchronously — validate, hash, store, reject duplicates — and
+    hands the rest to a task.
+
+    The hash is computed before anything is stored, because it is the only part
+    of the image that outlives the 24-hour deletion window. Losing it would
+    disable duplicate detection permanently.
     """
-    phash = imaging.perceptual_hash(image_bytes)
-    receipt = extraction.extract_receipt(image_bytes, mime_type, client=client)
+    max_bytes: int = settings.SPENDIUM["MAX_UPLOAD_BYTES"]
+    if len(image_bytes) > max_bytes:
+        raise UnsupportedImageError(
+            f"That image is larger than {max_bytes // (1024 * 1024)}MB."
+        )
+    if content_type not in settings.SPENDIUM["ALLOWED_UPLOAD_TYPES"]:
+        raise UnsupportedImageError("Please upload a photo of a receipt.")
 
-    store = _resolve_store(receipt.store_name)
+    try:
+        phash = imaging.perceptual_hash(image_bytes)
+    except Exception as exc:  # Pillow raises a variety of decode errors.
+        raise UnsupportedImageError("That file could not be read as an image.") from exc
+
+    duplicate = find_duplicate(player, phash)
+    if duplicate is not None:
+        raise DuplicateReceiptError("You have already uploaded this receipt.")
+
     purchase = Purchase(
         player=player,
-        store=store,
-        purchased_at=receipt.transaction_datetime or timezone.now(),
-        subtotal=receipt.subtotal,
-        tax=receipt.tax,
-        total=receipt.total,
+        purchased_at=timezone.now(),
         image_phash=phash,
+        processing_status=Purchase.STATUS_PENDING,
     )
     purchase.receipt_image.save(filename, ContentFile(image_bytes), save=False)
+    purchase.save()
+
+    enqueue("process-receipt", {"purchase_id": purchase.pk})
+    enqueue(
+        "anonymise-purchase",
+        {"purchase_id": purchase.pk},
+        schedule_time=purchase.anonymise_after,
+    )
+    return purchase
+
+
+@atomic
+def process_receipt(purchase_id: int, client: Any | None = None) -> Purchase | None:
+    """Read a stored receipt and populate the purchase from it.
+
+    Runs in a task. Failure is recorded on the purchase rather than raised: the
+    player uploaded something and is owed an answer, even when the answer is
+    that we could not read it.
+    """
+    purchase = Purchase.objects.filter(pk=purchase_id).first()
+    if purchase is None or purchase.processing_status != Purchase.STATUS_PENDING:
+        return None
+
+    if not purchase.receipt_image:
+        purchase.processing_status = Purchase.STATUS_FAILED
+        purchase.processing_problems = ["The uploaded image is no longer available."]
+        purchase.save(update_fields=["processing_status", "processing_problems"])
+        return purchase
+
+    try:
+        # Read through a context manager so the handle is closed before the
+        # deletion task runs. A leaked handle blocks the delete outright on
+        # Windows, and on Linux leaks a descriptor per receipt — which is worse,
+        # because it fails silently until the process runs out of them.
+        with purchase.receipt_image.open("rb") as handle:
+            image_bytes = handle.read()
+        receipt = extraction.extract_receipt(image_bytes, client=client)
+    except Exception as exc:
+        purchase.processing_status = Purchase.STATUS_FAILED
+        purchase.processing_problems = [str(exc)]
+        purchase.save(update_fields=["processing_status", "processing_problems"])
+        enqueue("delete-receipt-image", {"purchase_id": purchase.pk})
+        return purchase
+
+    store = _resolve_store(receipt.store_name)
+    purchase.store = store
+    purchase.purchased_at = receipt.transaction_datetime or purchase.purchased_at
+    purchase.subtotal = receipt.subtotal
+    purchase.tax = receipt.tax
+    purchase.total = receipt.total
+    purchase.processing_problems = list(receipt.problems)
+    purchase.processing_status = Purchase.STATUS_PROCESSED
     purchase.save()
 
     results = matching.match_line_items(
@@ -104,12 +202,10 @@ def record_receipt(
 
     _adjudicate_residuals(purchase, results, client=client)
 
+    # Anonymisation is already scheduled from accept_upload — the retention
+    # window runs from when the player handed over the receipt, not from when
+    # we got round to reading it.
     enqueue("delete-receipt-image", {"purchase_id": purchase.pk})
-    enqueue(
-        "anonymise-purchase",
-        {"purchase_id": purchase.pk},
-        schedule_time=purchase.anonymise_after,
-    )
     return purchase
 
 
@@ -207,6 +303,77 @@ def _record_provisional_alias(
             "source": ProductAlias.SOURCE_ADJUDICATION,
         },
     )
+
+
+def delete_purchase(purchase: Purchase) -> None:
+    """Erase one purchase at the player's request.
+
+    The published policy is precise about what this does and does not touch:
+    "Deleted purchases are removed from your record; aggregate store ratings
+    derived from them are not retroactively altered." So the player-linked rows
+    go, and any anonymous rows already written stay — they carry no route back
+    to anyone.
+
+    Aliases the player confirmed also stay. They are statements about what a
+    receipt string means, not records of who bought what.
+    """
+    if purchase.receipt_image:
+        purchase.receipt_image.delete(save=False)
+    PointTransaction.objects.filter(
+        content_type=ContentType.objects.get_for_model(Purchase),
+        object_id=purchase.pk,
+    ).update(content_type=None, object_id=None)
+    purchase.delete()
+
+
+def delete_purchase_history(player: Any) -> int:
+    """Erase every purchase for a player. Returns how many were removed."""
+    purchases = list(Purchase.objects.filter(player=player))
+    for purchase in purchases:
+        delete_purchase(purchase)
+    return len(purchases)
+
+
+def export_purchase_history(player: Any) -> list[dict[str, Any]]:
+    """The player's purchase history, for the access right in the policy.
+
+    Includes the raw receipt text alongside the resolved product, since the raw
+    string is what the system actually acts on and a copy that hid it would be
+    an incomplete answer.
+    """
+    export = []
+    for purchase in (
+        Purchase.objects.filter(player=player)
+        .select_related("store")
+        .prefetch_related("line_items__product")
+        .order_by("-purchased_at")
+    ):
+        export.append(
+            {
+                "store": purchase.store.name if purchase.store else None,
+                "purchased_at": purchase.purchased_at.isoformat(),
+                "subtotal": str(purchase.subtotal) if purchase.subtotal else None,
+                "tax": str(purchase.tax) if purchase.tax else None,
+                "total": str(purchase.total),
+                "status": purchase.processing_status,
+                "anonymised_after": purchase.anonymise_after.isoformat(),
+                "line_items": [
+                    {
+                        "receipt_text": line.raw_text,
+                        "read_as": line.interpreted_name,
+                        "matched_product": (
+                            line.product.canonical_name if line.product else None
+                        ),
+                        "how_it_was_matched": line.match_tier,
+                        "quantity": str(line.quantity),
+                        "unit_price": str(line.unit_price) if line.unit_price else None,
+                        "line_total": str(line.line_total),
+                    }
+                    for line in purchase.line_items.all()
+                ],
+            }
+        )
+    return export
 
 
 def negative_line_total_ids(purchase: Purchase) -> list[int]:

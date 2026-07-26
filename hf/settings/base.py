@@ -228,6 +228,18 @@ SPENDIUM = {
     # A receipt older than the retention window can never be rated, so there is
     # no point accepting one.
     "MAX_RECEIPT_AGE_DAYS": config("MAX_RECEIPT_AGE_DAYS", default=30, cast=int),
+    # Upload limits. Phone cameras produce large files, but a receipt does not
+    # need to be one — and the cap is what stops an upload endpoint being used
+    # as free storage.
+    "MAX_UPLOAD_BYTES": config("MAX_UPLOAD_BYTES", default=10 * 1024 * 1024, cast=int),
+    "ALLOWED_UPLOAD_TYPES": ("image/jpeg", "image/png", "image/webp", "image/heic"),
+    # Perceptual hashes within this many bits of each other are treated as the
+    # same receipt. Difference hashing is tolerant of scale and lighting, so a
+    # small distance still means "a photo of the same piece of paper".
+    "DUPLICATE_HASH_DISTANCE": config("DUPLICATE_HASH_DISTANCE", default=5, cast=int),
+    # How far back to look for a duplicate. Long enough to catch a resubmission,
+    # short enough that a genuinely repeated shop is not blocked.
+    "DUPLICATE_LOOKBACK_DAYS": config("DUPLICATE_LOOKBACK_DAYS", default=90, cast=int),
 }
 
 MEMBER_MULTIPLIER: float = config("MEMBER_MULTIPLIER", default=1.5, cast=float)

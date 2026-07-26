@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 from uuid import uuid4
 
 from django.conf import settings
@@ -473,6 +474,15 @@ class Purchase(models.Model):
     row that no longer exists cannot be joined to.
     """
 
+    STATUS_PENDING = "pending"
+    STATUS_PROCESSED = "processed"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Waiting to be read"),
+        (STATUS_PROCESSED, "Read"),
+        (STATUS_FAILED, "Could not be read"),
+    ]
+
     player = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="purchases"
     )
@@ -483,12 +493,30 @@ class Purchase(models.Model):
         blank=True,
         related_name="purchases",
     )
-    purchased_at = models.DateTimeField(help_text="Transaction time, from the receipt.")
+    processing_status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+        help_text="Extraction runs in a task, so a purchase exists before it "
+        "has been read.",
+    )
+    processing_problems = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Arithmetic and legibility problems found during extraction. "
+        "Shown to the player rather than hidden — they are the only person who "
+        "can tell whether a reading is actually wrong.",
+    )
+    purchased_at = models.DateTimeField(
+        help_text="Transaction time, from the receipt. Holds the upload time "
+        "until the receipt has been read."
+    )
     subtotal = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True
     )
     tax = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    total = models.DecimalField(max_digits=10, decimal_places=2)
+    total = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0"))
     receipt_image = models.FileField(
         upload_to="receipts/%Y/%m/",
         null=True,

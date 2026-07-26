@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Members only — Spendium{% endblock %}
+{% block content %}
+<main style="max-width:640px;margin:0 auto;padding:2rem 1.5rem;font-family:system-ui,sans-serif">
+
+  <h1 style="font-family:Georgia,serif;font-weight:normal;margin:0 0 .5rem">
+    Receipt scanning is for members
+  </h1>
+  <p style="color:#6b7280;font-size:.9rem;line-height:1.6;margin:0 0 1rem">
+    Reading receipts is one of the things membership pays for. You can still
+    browse ratings, rate products you have already logged, and take part in
+    everything else without one.
+  </p>
+  <a href="{% url 'spendium:purchase_list' %}"
+     style="font-size:.875rem;color:#1d4ed8;text-decoration:none">Back to your receipts</a>
+
+</main>
+{% endblock %}

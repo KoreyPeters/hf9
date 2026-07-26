@@ -8,14 +8,18 @@ from datastar_py.django import (
     read_signals,
 )
 from datastar_py.sse import DatastarEvent
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.http import HttpRequest, HttpResponse
-from django.shortcuts import get_object_or_404, render
+from django.core.exceptions import ObjectDoesNotExist
+from django.db.models import Count, Q
+from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from . import disambiguation
+from . import disambiguation, service
 from .models import Product, Purchase, PurchaseLineItem
 
 
@@ -34,6 +38,19 @@ def notify(request: HttpRequest) -> Generator[DatastarEvent, None, None]:
         SpendiumWaitlist.objects.get_or_create(email=email)
     fragment = render_to_string("spendium/partials/notify_success.html")
     yield SSE.patch_elements(fragment, selector="#notify-form")
+
+
+def _is_member(player: object) -> bool:
+    """Receipt scanning is a members-only feature.
+
+    Not a cost constraint — extraction is cheap per receipt. It is a deliberate
+    product decision to make membership tangibly worth something.
+    """
+    try:
+        membership = player.membership
+    except ObjectDoesNotExist:
+        return False
+    return membership.is_active and membership.expires_at > timezone.now()
 
 
 def _get_purchase(request: HttpRequest, pk: int) -> Purchase:
@@ -146,3 +163,97 @@ def submit_line_free_text(request: HttpRequest, pk: int) -> DatastarResponse:
     except (disambiguation.WindowClosedError, ValueError) as exc:
         return _prompts_response(line.purchase, request, error=str(exc))
     return _prompts_response(line.purchase, request)
+
+
+# ── Receipt capture and history ───────────────────────────────────────────────
+
+
+@login_required
+def purchase_list(request: HttpRequest) -> HttpResponse:
+    """The player's receipts.
+
+    The privacy policy promises purchase history is visible and deletable, so
+    this page is an obligation rather than a convenience.
+    """
+    purchases = (
+        Purchase.objects.filter(player=request.user)
+        .select_related("store")
+        .annotate(
+            unresolved=Count(
+                "line_items",
+                filter=Q(
+                    line_items__disambiguation_state=PurchaseLineItem.STATE_PENDING
+                ),
+            )
+        )
+        .order_by("-purchased_at")
+    )
+    return render(
+        request,
+        "spendium/purchase_list.html",
+        {"purchases": purchases, "is_member": _is_member(request.user)},
+    )
+
+
+@login_required
+def receipt_upload(request: HttpRequest) -> HttpResponse:
+    if not _is_member(request.user):
+        return render(request, "spendium/upload_members_only.html", status=403)
+
+    error = ""
+    if request.method == "POST":
+        upload = request.FILES.get("receipt")
+        if upload is None:
+            error = "Choose a photo of your receipt."
+        else:
+            try:
+                purchase = service.accept_upload(
+                    request.user,
+                    upload.read(),
+                    filename=upload.name,
+                    content_type=upload.content_type or "",
+                )
+            except (
+                service.DuplicateReceiptError,
+                service.UnsupportedImageError,
+            ) as exc:
+                error = str(exc)
+            else:
+                return redirect("spendium:purchase_detail", pk=purchase.pk)
+
+    return render(
+        request,
+        "spendium/receipt_upload.html",
+        {
+            "error": error,
+            "max_mb": settings.SPENDIUM["MAX_UPLOAD_BYTES"] // (1024 * 1024),
+        },
+    )
+
+
+@login_required
+@require_POST
+def purchase_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    service.delete_purchase(_get_purchase(request, pk))
+    return redirect("spendium:purchase_list")
+
+
+@login_required
+@require_POST
+def purchase_history_delete(request: HttpRequest) -> HttpResponse:
+    service.delete_purchase_history(request.user)
+    return redirect("spendium:purchase_list")
+
+
+@login_required
+def purchase_history_export(request: HttpRequest) -> JsonResponse:
+    """A copy of everything held about this player's purchases."""
+    response = JsonResponse(
+        service.export_purchase_history(request.user),
+        safe=False,
+        json_dumps_params={"indent": 2},
+    )
+    response["Content-Disposition"] = (
+        'attachment; filename="spendium-purchase-history.json"'
+    )
+    return response

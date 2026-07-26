@@ -7,7 +7,20 @@ app_name = "spendium"
 urlpatterns = [
     path("notify/", views.notify, name="notify"),
     path("privacy/", views.privacy, name="privacy"),
+    path("receipts/", views.purchase_list, name="purchase_list"),
+    path("receipts/upload/", views.receipt_upload, name="receipt_upload"),
+    path(
+        "receipts/export/",
+        views.purchase_history_export,
+        name="purchase_history_export",
+    ),
+    path(
+        "receipts/delete-all/",
+        views.purchase_history_delete,
+        name="purchase_history_delete",
+    ),
     path("purchases/<int:pk>/", views.purchase_detail, name="purchase_detail"),
+    path("purchases/<int:pk>/delete/", views.purchase_delete, name="purchase_delete"),
     path(
         "purchases/<int:pk>/prompts/",
         views.disambiguation_section,

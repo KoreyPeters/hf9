@@ -20,6 +20,12 @@ def sweep_purchase_anonymisation() -> None:
         service.anonymise_purchase(purchase_id)
 
 
+@task("process-receipt")
+def process_receipt(purchase_id: int) -> None:
+    """Read an uploaded receipt. Enqueued the moment the upload is accepted."""
+    service.process_receipt(purchase_id)
+
+
 @task("delete-receipt-image")
 def delete_receipt_image(purchase_id: int) -> None:
     """Enqueued as soon as extraction finishes."""

@@ -23,10 +23,45 @@
     {% endif %}
   </div>
 
+  {% if purchase.processing_status == "pending" %}
+  <div style="border:1px solid #fde68a;background:#fffbeb;border-radius:6px;padding:.9rem;margin-bottom:2rem">
+    <p style="margin:0;font-size:.9rem;color:#92400e">
+      We're still reading this receipt. Refresh in a moment.
+    </p>
+  </div>
+
+  {% elif purchase.processing_status == "failed" %}
+  <div style="border:1px solid #fecaca;background:#fef2f2;border-radius:6px;padding:.9rem;margin-bottom:2rem">
+    <p style="margin:0 0 .35rem;font-size:.9rem;color:#991b1b">
+      We couldn't read this receipt.
+    </p>
+    <p style="margin:0;font-size:.8rem;color:#b91c1c">
+      A clearer, flatter photo usually works. The image has already been deleted,
+      so you'd need to upload it again.
+    </p>
+  </div>
+
+  {% else %}
+  {% if purchase.processing_problems %}
+  {# Surfaced rather than hidden: the player is the only person who can tell
+     whether a misreading actually matters. #}
+  <div style="border:1px solid #fde68a;background:#fffbeb;border-radius:6px;padding:.9rem;margin-bottom:1.5rem">
+    <p style="margin:0 0 .35rem;font-size:.85rem;color:#92400e">
+      Some of this receipt didn't add up, so a few figures may be wrong:
+    </p>
+    <ul style="margin:0;padding-left:1.1rem;font-size:.8rem;color:#92400e">
+      {% for problem in purchase.processing_problems %}
+      <li>{{ problem }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
   {# Prompts. Short by design — see the partial. #}
   <div style="margin-bottom:2rem">
     {% include "spendium/partials/disambiguation_section.html" %}
   </div>
+  {% endif %}
 
   {# Everything on the receipt, whether or not it needed checking. #}
   <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.1rem;margin:0 0 .75rem">
@@ -55,6 +90,20 @@
       {% endfor %}
     </tbody>
   </table>
+
+  <div style="margin-top:2rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap">
+    <a href="{% url 'spendium:purchase_list' %}"
+       style="font-size:.8rem;color:#1d4ed8;text-decoration:none">All receipts</a>
+    <form method="post" action="{% url 'spendium:purchase_delete' purchase.pk %}"
+          onsubmit="return confirm('Delete this receipt? This cannot be undone.')"
+          style="margin:0">
+      {% csrf_token %}
+      <button type="submit"
+              style="font-size:.8rem;color:#b91c1c;background:none;border:none;cursor:pointer;padding:0">
+        Delete this receipt
+      </button>
+    </form>
+  </div>
 
 </main>
 {% endblock %}

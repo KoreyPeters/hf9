@@ -11,7 +11,7 @@ from decimal import Decimal
 import pytest
 
 from accounts.models import Player
-from spendium import adjudication, metrics, service
+from spendium import adjudication, metrics
 from spendium.models import (
     MatchConfig,
     MatchTier,
@@ -20,7 +20,11 @@ from spendium.models import (
     PurchaseLineItem,
     Store,
 )
-from spendium.test_extraction import FakeClient, png_bytes, receipt_payload
+from spendium.conftest import FakeClient
+from spendium.test_extraction import (
+    receipt_payload,
+    upload_and_process,
+)
 
 
 @pytest.fixture
@@ -193,14 +197,14 @@ def near_miss_catalogue(db: None) -> Product:
 
 @pytest.mark.django_db
 def test_adjudication_resolves_a_tier1_miss(
-    shopper: Player, near_miss_catalogue: Product
+    shopper: Player, near_miss_catalogue: Product, fake_model
 ) -> None:
     config = MatchConfig.get()
     config.weak_match_score = 95  # force the fuzzy match to fall short
     config.noise_floor_score = 10
     config.save()
 
-    client = FakeClient(
+    client = fake_model(
         receipt_payload(),
         decisions_payload(
             {
@@ -211,7 +215,7 @@ def test_adjudication_resolves_a_tier1_miss(
             }
         ),
     )
-    service.record_receipt(shopper, png_bytes(), client=client)
+    upload_and_process(shopper, client)
 
     # Two calls: extraction, then adjudication. Guards against this passing
     # because the residual was never sent at all.
@@ -223,7 +227,7 @@ def test_adjudication_resolves_a_tier1_miss(
 
 @pytest.mark.django_db
 def test_adjudication_writes_a_provisional_alias(
-    shopper: Player, near_miss_catalogue: Product
+    shopper: Player, near_miss_catalogue: Product, fake_model
 ) -> None:
     """So the next receipt with this string resolves at Tier 0, for free."""
     config = MatchConfig.get()
@@ -231,7 +235,7 @@ def test_adjudication_writes_a_provisional_alias(
     config.noise_floor_score = 10
     config.save()
 
-    client = FakeClient(
+    client = fake_model(
         receipt_payload(),
         decisions_payload(
             {
@@ -242,7 +246,7 @@ def test_adjudication_writes_a_provisional_alias(
             }
         ),
     )
-    service.record_receipt(shopper, png_bytes(), client=client)
+    upload_and_process(shopper, client)
 
     alias = ProductAlias.objects.get(raw_text_normalised="tp colg 250")
     assert alias.product == near_miss_catalogue
@@ -252,7 +256,7 @@ def test_adjudication_writes_a_provisional_alias(
 
 @pytest.mark.django_db
 def test_adjudicated_line_still_prompts_the_player(
-    shopper: Player, near_miss_catalogue: Product
+    shopper: Player, near_miss_catalogue: Product, fake_model
 ) -> None:
     """The model is a strong signal, never a confirming witness."""
     config = MatchConfig.get()
@@ -260,7 +264,7 @@ def test_adjudicated_line_still_prompts_the_player(
     config.noise_floor_score = 10
     config.save()
 
-    client = FakeClient(
+    client = fake_model(
         receipt_payload(),
         decisions_payload(
             {
@@ -271,22 +275,24 @@ def test_adjudicated_line_still_prompts_the_player(
             }
         ),
     )
-    service.record_receipt(shopper, png_bytes(), client=client)
+    upload_and_process(shopper, client)
 
     line = PurchaseLineItem.objects.get(raw_text="TP-COLG-250")
     assert line.disambiguation_state == PurchaseLineItem.STATE_PENDING
 
 
 @pytest.mark.django_db
-def test_no_candidates_means_no_adjudication_call(shopper: Player) -> None:
+def test_no_candidates_means_no_adjudication_call(shopper: Player, fake_model) -> None:
     """An empty candidate list gives the model nothing to choose from."""
-    client = FakeClient(receipt_payload())
-    service.record_receipt(shopper, png_bytes(), client=client)
+    client = fake_model(receipt_payload())
+    upload_and_process(shopper, client)
     assert len(client.models.calls) == 1
 
 
 @pytest.mark.django_db
-def test_matched_lines_are_not_adjudicated(shopper: Player, store: Store) -> None:
+def test_matched_lines_are_not_adjudicated(
+    shopper: Player, store: Store, fake_model
+) -> None:
     """Tier 2 only sees what Tiers 0 and 1 could not resolve."""
     product = Product.objects.create(
         canonical_name="Colgate Toothpaste Bright Whitening"
@@ -294,14 +300,14 @@ def test_matched_lines_are_not_adjudicated(shopper: Player, store: Store) -> Non
     Product.objects.create(canonical_name="Heinz Tomato Ketchup")
     ProductAlias.objects.create(product=product, store=store, raw_text="TP-COLG-250")
 
-    client = FakeClient(receipt_payload())
-    service.record_receipt(shopper, png_bytes(), client=client)
+    client = fake_model(receipt_payload())
+    upload_and_process(shopper, client)
     assert len(client.models.calls) == 1
 
 
 @pytest.mark.django_db
 def test_adjudication_can_be_disabled(
-    shopper: Player, near_miss_catalogue: Product
+    shopper: Player, near_miss_catalogue: Product, fake_model
 ) -> None:
     config = MatchConfig.get()
     config.weak_match_score = 95
@@ -309,14 +315,14 @@ def test_adjudication_can_be_disabled(
     config.adjudication_candidates = 0
     config.save()
 
-    client = FakeClient(receipt_payload())
-    service.record_receipt(shopper, png_bytes(), client=client)
+    client = fake_model(receipt_payload())
+    upload_and_process(shopper, client)
     assert len(client.models.calls) == 1
 
 
 @pytest.mark.django_db
 def test_a_demoted_alias_is_not_resurrected_by_the_model(
-    shopper: Player, store: Store, near_miss_catalogue: Product
+    shopper: Player, store: Store, near_miss_catalogue: Product, fake_model
 ) -> None:
     """A string players have contradicted must not be quietly reclaimed.
 
@@ -338,7 +344,7 @@ def test_a_demoted_alias_is_not_resurrected_by_the_model(
     config.noise_floor_score = 10
     config.save()
 
-    client = FakeClient(
+    client = fake_model(
         receipt_payload(),
         decisions_payload(
             {
@@ -349,7 +355,7 @@ def test_a_demoted_alias_is_not_resurrected_by_the_model(
             }
         ),
     )
-    service.record_receipt(shopper, png_bytes(), client=client)
+    upload_and_process(shopper, client)
 
     # The residual really did reach adjudication, so the guard below is being
     # exercised rather than skipped.
@@ -420,9 +426,9 @@ def test_accuracy_ignores_player_sourced_aliases(store: Store) -> None:
 
 
 @pytest.mark.django_db
-def test_tier_distribution_reports_every_tier(shopper: Player) -> None:
-    client = FakeClient(receipt_payload())
-    service.record_receipt(shopper, png_bytes(), client=client)
+def test_tier_distribution_reports_every_tier(shopper: Player, fake_model) -> None:
+    client = fake_model(receipt_payload())
+    upload_and_process(shopper, client)
     distribution = metrics.tier_distribution()
     assert set(distribution) == {tier.value for tier in MatchTier}
     assert distribution[MatchTier.UNMATCHED.value] == 2
@@ -434,8 +440,10 @@ def test_prompt_rate_is_none_with_no_line_items() -> None:
 
 
 @pytest.mark.django_db
-def test_prompt_rate_reflects_pending_disambiguations(shopper: Player) -> None:
-    client = FakeClient(receipt_payload())
-    purchase = service.record_receipt(shopper, png_bytes(), client=client)
+def test_prompt_rate_reflects_pending_disambiguations(
+    shopper: Player, fake_model
+) -> None:
+    client = fake_model(receipt_payload())
+    purchase = upload_and_process(shopper, client)
     assert purchase.total == Decimal("9.58")
     assert metrics.prompt_rate() == 1.0

@@ -18,37 +18,11 @@ from PIL import Image
 
 from accounts.models import Player
 from spendium import extraction, imaging, service
+from spendium.conftest import FakeClient
 from spendium.models import Product, ProductAlias, Purchase, PurchaseLineItem, Store
 
 
-# ── Fakes and fixtures ────────────────────────────────────────────────────────
-
-
-class FakeResponse:
-    def __init__(self, text: str) -> None:
-        self.text = text
-
-
-class FakeModels:
-    def __init__(self, payloads: list[str]) -> None:
-        self._payloads = list(payloads)
-        self.calls: list[dict] = []
-
-    def generate_content(
-        self, *, model: str, contents: list, config: object
-    ) -> FakeResponse:
-        self.calls.append({"model": model, "config": config, "contents": contents})
-        payload = (
-            self._payloads.pop(0) if len(self._payloads) > 1 else self._payloads[0]
-        )
-        return FakeResponse(payload)
-
-
-class FakeClient:
-    """Stands in for genai.Client. Returns each recorded payload in turn."""
-
-    def __init__(self, *payloads: str) -> None:
-        self.models = FakeModels(list(payloads))
+# ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
 def receipt_payload(**overrides: object) -> str:
@@ -107,6 +81,21 @@ def patterned_image(seed: int = 0, size: tuple[int, int] = (64, 64)) -> Image.Im
         for x in range(size[0]):
             pixels[x, y] = (x * horizontal + y * 13) % 256
     return image
+
+
+def upload_and_process(player: Player, client: FakeClient) -> Purchase:
+    """Upload a receipt and let the extraction task run.
+
+    `enqueue` runs inline under DEBUG, so accepting the upload also processes
+    it. `client` must already have been installed by the `fake_model` fixture —
+    it is passed in only so the test can assert on the calls it received.
+
+    The returned object is refreshed because the task writes to the row after
+    `accept_upload` has already handed back its in-memory copy.
+    """
+    purchase = service.accept_upload(player, png_bytes(), content_type="image/png")
+    purchase.refresh_from_db()
+    return purchase
 
 
 @pytest.fixture
@@ -376,76 +365,80 @@ def test_hamming_distance_rejects_mismatched_lengths() -> None:
 
 
 @pytest.mark.django_db
-def test_record_receipt_creates_purchase_and_lines(shopper: Player) -> None:
-    purchase = service.record_receipt(
-        shopper, png_bytes(), client=FakeClient(receipt_payload())
-    )
+def test_record_receipt_creates_purchase_and_lines(shopper: Player, fake_model) -> None:
+    purchase = upload_and_process(shopper, fake_model(receipt_payload()))
     assert purchase.player == shopper
     assert purchase.total == Decimal("9.58")
     assert purchase.line_items.count() == 2
 
 
 @pytest.mark.django_db
-def test_record_receipt_creates_the_store(shopper: Player) -> None:
-    service.record_receipt(shopper, png_bytes(), client=FakeClient(receipt_payload()))
+def test_record_receipt_creates_the_store(shopper: Player, fake_model) -> None:
+    upload_and_process(shopper, fake_model(receipt_payload()))
     assert Store.objects.filter(name="Shoppers Drug Mart").exists()
 
 
 @pytest.mark.django_db
-def test_record_receipt_reuses_an_existing_store(shopper: Player) -> None:
+def test_record_receipt_reuses_an_existing_store(shopper: Player, fake_model) -> None:
     Store.objects.create(name="Shoppers Drug Mart")
-    service.record_receipt(shopper, png_bytes(), client=FakeClient(receipt_payload()))
+    upload_and_process(shopper, fake_model(receipt_payload()))
     assert Store.objects.filter(name__iexact="Shoppers Drug Mart").count() == 1
 
 
 @pytest.mark.django_db
-def test_record_receipt_normalises_raw_text(shopper: Player) -> None:
+def test_record_receipt_normalises_raw_text(shopper: Player, fake_model) -> None:
     """bulk_create skips save(), so normalisation has to be applied explicitly."""
-    service.record_receipt(shopper, png_bytes(), client=FakeClient(receipt_payload()))
+    upload_and_process(shopper, fake_model(receipt_payload()))
     line = PurchaseLineItem.objects.get(raw_text="TP-COLG-250")
     assert line.raw_text_normalised == "tp colg 250"
 
 
 @pytest.mark.django_db
-def test_record_receipt_matches_against_the_catalogue(shopper: Player) -> None:
+def test_record_receipt_matches_against_the_catalogue(
+    shopper: Player, fake_model
+) -> None:
     product = Product.objects.create(canonical_name="Heinz Tomato Ketchup")
-    service.record_receipt(shopper, png_bytes(), client=FakeClient(receipt_payload()))
+    upload_and_process(shopper, fake_model(receipt_payload()))
     line = PurchaseLineItem.objects.get(raw_text="HEINZ KETCHUP 750ML")
     assert line.product == product
 
 
 @pytest.mark.django_db
-def test_record_receipt_uses_retailer_scoped_aliases(shopper: Player) -> None:
+def test_record_receipt_uses_retailer_scoped_aliases(
+    shopper: Player, fake_model
+) -> None:
     store = Store.objects.create(name="Shoppers Drug Mart")
     product = Product.objects.create(
         canonical_name="Colgate Toothpaste Bright Whitening"
     )
     ProductAlias.objects.create(product=product, store=store, raw_text="TP-COLG-250")
-    service.record_receipt(shopper, png_bytes(), client=FakeClient(receipt_payload()))
+    upload_and_process(shopper, fake_model(receipt_payload()))
     line = PurchaseLineItem.objects.get(raw_text="TP-COLG-250")
     assert line.product == product
     assert line.match_confidence == Decimal("1.000")
 
 
 @pytest.mark.django_db
-def test_unmatched_lines_are_marked_for_disambiguation(shopper: Player) -> None:
-    service.record_receipt(shopper, png_bytes(), client=FakeClient(receipt_payload()))
+def test_unmatched_lines_are_marked_for_disambiguation(
+    shopper: Player, fake_model
+) -> None:
+    upload_and_process(shopper, fake_model(receipt_payload()))
     assert PurchaseLineItem.objects.filter(
         disambiguation_state=PurchaseLineItem.STATE_PENDING
     ).exists()
 
 
 @pytest.mark.django_db
-def test_record_receipt_stores_the_hash(shopper: Player) -> None:
-    image = png_bytes()
-    purchase = service.record_receipt(
-        shopper, image, client=FakeClient(receipt_payload())
-    )
-    assert purchase.image_phash == imaging.perceptual_hash(image)
+def test_record_receipt_stores_the_hash(shopper: Player, fake_model) -> None:
+    """Hashed at upload, before the image can be lost."""
+    purchase = upload_and_process(shopper, fake_model(receipt_payload()))
+    assert purchase.image_phash == imaging.perceptual_hash(png_bytes())
 
 
 @pytest.mark.django_db
-def test_negative_lines_are_identified_for_exclusion(shopper: Player) -> None:
+def test_negative_lines_are_identified_for_exclusion(
+    shopper: Player, fake_model
+) -> None:
     payload = receipt_payload(
         line_items=[
             {"raw_text": "MILK 2L", "interpreted_name": "Milk 2L", "line_total": 5.00},
@@ -455,7 +448,7 @@ def test_negative_lines_are_identified_for_exclusion(shopper: Player) -> None:
         tax=0.00,
         total=3.00,
     )
-    purchase = service.record_receipt(shopper, png_bytes(), client=FakeClient(payload))
+    purchase = upload_and_process(shopper, fake_model(payload))
     assert len(service.negative_line_total_ids(purchase)) == 1
 
 
@@ -463,34 +456,30 @@ def test_negative_lines_are_identified_for_exclusion(shopper: Player) -> None:
 
 
 @pytest.mark.django_db
-def test_image_is_deleted_immediately_after_processing(shopper: Player) -> None:
+def test_image_is_deleted_immediately_after_processing(
+    shopper: Player, fake_model
+) -> None:
     """DEBUG runs enqueued tasks inline, so the deletion happens during the call.
 
     The published promise is 24 hours, but the cheapest way to honour a deletion
     promise is to have nothing left to delete.
     """
-    purchase = service.record_receipt(
-        shopper, png_bytes(), client=FakeClient(receipt_payload())
-    )
+    purchase = upload_and_process(shopper, fake_model(receipt_payload()))
     purchase.refresh_from_db()
     assert not purchase.receipt_image
     assert purchase.image_deleted_at is not None
 
 
 @pytest.mark.django_db
-def test_deleting_an_image_is_idempotent(shopper: Player) -> None:
-    purchase = service.record_receipt(
-        shopper, png_bytes(), client=FakeClient(receipt_payload())
-    )
+def test_deleting_an_image_is_idempotent(shopper: Player, fake_model) -> None:
+    purchase = upload_and_process(shopper, fake_model(receipt_payload()))
     assert service.delete_receipt_image(purchase.pk) is False
 
 
 @pytest.mark.django_db
-def test_hash_outlives_the_image(shopper: Player) -> None:
+def test_hash_outlives_the_image(shopper: Player, fake_model) -> None:
     """Duplicate detection has to keep working after the image is gone."""
-    purchase = service.record_receipt(
-        shopper, png_bytes(), client=FakeClient(receipt_payload())
-    )
+    purchase = upload_and_process(shopper, fake_model(receipt_payload()))
     purchase.refresh_from_db()
     assert not purchase.receipt_image
     assert purchase.image_phash
