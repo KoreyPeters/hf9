@@ -48,3 +48,9 @@ variable "vertex_billing_service" {
   description = "Billing service id for Vertex AI, e.g. services/XXXX-XXXX-XXXX. Find with: gcloud billing services list --filter=\"displayName~'Vertex'\". Empty skips the AI-specific budget and relies on the project-wide one."
   default     = ""
 }
+
+variable "alert_emails" {
+  type        = list(string)
+  description = "Addresses notified when hf-app returns 5xx. Defaults to budget_alert_emails so one address in tfvars covers both."
+  default     = []
+}

@@ -23,12 +23,34 @@ ANYMAIL = {
 }
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="noreply@humanflourish.ing")
 
+# Who hears about unhandled exceptions. Django mails these a full traceback,
+# which is the part Cloud Monitoring cannot give you — its alert says a 5xx
+# happened and leaves you to go and find out why.
+ADMINS = [("HF errors", config("ERROR_EMAIL", default="me@koreypeters.org"))]
+# The From address on those mails. Without it Django uses root@localhost, which
+# Mailgun will not accept.
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {
+        "throttle_duplicates": {
+            "()": "core.logging.ThrottleDuplicates",
+        },
+    },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
+        },
+        # Fires on any unhandled exception — i.e. anything that returns a 500.
+        # Deliberately not attached to the root logger: that would mail on every
+        # WARNING, and the point is that arriving mail means something broke.
+        "mail_admins": {
+            "class": "django.utils.log.AdminEmailHandler",
+            "level": "ERROR",
+            "include_html": False,
+            "filters": ["throttle_duplicates"],
         },
     },
     "root": {
@@ -42,7 +64,7 @@ LOGGING = {
             "propagate": False,
         },
         "django.request": {
-            "handlers": ["console"],
+            "handlers": ["console", "mail_admins"],
             "level": "DEBUG",
             "propagate": False,
         },
