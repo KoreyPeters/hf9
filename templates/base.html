@@ -24,6 +24,25 @@
   </script>
   <script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.1/bundles/datastar.js"></script>
   <link rel="manifest" href="/manifest.json">
+
+  {% comment %}
+    Installing on iOS. Safari ignores the manifest's icons entirely and uses
+    apple-touch-icon, so without this an installed app gets a screenshot of the
+    page as its home screen icon.
+
+    `mobile-web-app-capable` is the current spelling and the `apple-` one is
+    deprecated, but older iOS reads only the latter and both are cheap.
+
+    Status bar `default` means dark text on light, which is what suits a white
+    sticky nav — `black-translucent` would slide the page up under the clock.
+  {% endcomment %}
+  <meta name="theme-color" content="#ffffff">
+  <link rel="apple-touch-icon" href="{% static 'icons/apple-touch-icon.png' %}">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="HF">
+
   {% block extra_head %}{% endblock %}
 </head>
 <body>
