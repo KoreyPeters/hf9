@@ -213,13 +213,24 @@ def accept_upload(
     return purchase
 
 
-@atomic
 def process_receipt(purchase_id: int, client: Any | None = None) -> Purchase | None:
     """Read a stored receipt and populate the purchase from it.
 
     Runs in a task. Failure is recorded on the purchase rather than raised: the
     player uploaded something and is owed an answer, even when the answer is
     that we could not read it.
+
+    Deliberately not one transaction. Reading a receipt takes two calls to
+    Gemini, and SQLite allows a single writer — so wrapping the whole function
+    held the write lock across a model round trip, and everything else wanting to
+    write, down to a session row on a page refresh, waited it out and failed with
+    "database is locked".
+
+    Instead: four phases, with the network calls outside the two short
+    transactions. Read, persist, adjudicate, settle. The status only becomes
+    `processed` in the last of them, which is what makes a run that dies partway
+    safe — the purchase is left pending and the sweep starts it again from the
+    top.
     """
     purchase = Purchase.objects.filter(pk=purchase_id).first()
     if purchase is None or purchase.processing_status != Purchase.STATUS_PENDING:
@@ -246,6 +257,8 @@ def process_receipt(purchase_id: int, client: Any | None = None) -> Purchase | N
         purchase.save(update_fields=["processing_status", "processing_problems"])
         return purchase
 
+    # Phase 1 — read. No transaction: a fetch from GCS and a model call, neither
+    # of which belongs anywhere near the write lock.
     try:
         # Read through a context manager so the handle is closed before the
         # deletion task runs. A leaked handle blocks the delete outright on
@@ -261,6 +274,37 @@ def process_receipt(purchase_id: int, client: Any | None = None) -> Purchase | N
         _enqueue_or_sweep("delete-receipt-image", {"purchase_id": purchase.pk})
         return purchase
 
+    # Phase 2 — persist what was read.
+    results = _record_extraction(purchase, receipt)
+
+    # Phase 3 — ask the model about what matching could not place. Outside a
+    # transaction, which is the entire point of the split: this is the call that
+    # used to be made while holding the write lock.
+    items = _adjudication_items(purchase, results)
+    decisions = adjudication.adjudicate(items, client=client) if items else {}
+
+    # Phase 4 — apply those decisions, then settle up. Order matters: points are
+    # summed over the products on the line items, so paying before adjudication
+    # would underpay the player for exactly the items the model resolved.
+    _settle(purchase, decisions)
+
+    # Anonymisation is already scheduled from accept_upload — the retention
+    # window runs from when the player handed over the receipt, not from when
+    # we got round to reading it.
+    _enqueue_or_sweep("delete-receipt-image", {"purchase_id": purchase.pk})
+    return purchase
+
+
+@atomic
+def _record_extraction(purchase: Purchase, receipt: Any) -> list[matching.MatchResult]:
+    """Phase 2: everything the extraction produced, in one short transaction.
+
+    Line items are recreated rather than appended to. A run that died between
+    here and settlement leaves its lines behind and the sweep will retry the
+    receipt, so appending would silently double it. Deleting first is safe
+    because the player cannot have touched them yet — the disambiguation prompts
+    render only for a processed purchase, and this one is still pending.
+    """
     store = _resolve_store(receipt.store_name)
     purchase.store = store
     purchase.purchased_at = receipt.transaction_datetime or purchase.purchased_at
@@ -268,8 +312,9 @@ def process_receipt(purchase_id: int, client: Any | None = None) -> Purchase | N
     purchase.tax = receipt.tax
     purchase.total = receipt.total
     purchase.processing_problems = list(receipt.problems)
-    purchase.processing_status = Purchase.STATUS_PROCESSED
     purchase.save()
+
+    purchase.line_items.all().delete()
 
     results = matching.match_line_items(
         [(item.raw_text, item.interpreted_name) for item in receipt.line_items],
@@ -301,7 +346,13 @@ def process_receipt(purchase_id: int, client: Any | None = None) -> Purchase | N
     for line in purchase.line_items.all():
         line.save(update_fields=["raw_text_normalised"])
 
-    _adjudicate_residuals(purchase, results, client=client)
+    return results
+
+
+@atomic
+def _settle(purchase: Purchase, decisions: dict[int, Any]) -> None:
+    """Phase 4: the model's decisions, the abuse check, the payout, the status."""
+    _apply_adjudication(purchase, decisions)
 
     # Evaluated before payment, so a held purchase is never paid and then
     # clawed back. The receipt itself is already read and already counts toward
@@ -313,32 +364,31 @@ def process_receipt(purchase_id: int, client: Any | None = None) -> Purchase | N
     # player has already earned.
     points.award_for_purchase(purchase)
 
-    # Anonymisation is already scheduled from accept_upload — the retention
-    # window runs from when the player handed over the receipt, not from when
-    # we got round to reading it.
-    _enqueue_or_sweep("delete-receipt-image", {"purchase_id": purchase.pk})
-    return purchase
+    # Last, and deliberately so. Until this lands the purchase is still pending,
+    # so a failure anywhere above leaves it to the sweep rather than stranding it
+    # half-read and marked done.
+    purchase.processing_status = Purchase.STATUS_PROCESSED
+    purchase.save(update_fields=["processing_status"])
 
 
-def _adjudicate_residuals(
+def _adjudication_items(
     purchase: Purchase,
     results: list[matching.MatchResult],
-    client: Any | None = None,
-) -> int:
-    """Send what Tiers 0 and 1 missed to the model, with their near-misses.
+) -> list[adjudication.AdjudicationItem]:
+    """What Tiers 0 and 1 missed, with their near-misses, for the model to judge.
 
     Only items with no product *and* at least one plausible candidate are worth
     asking about. An item with an empty candidate list has nothing to choose
     from, so a call would either return "none of these" or invent an answer.
 
-    A confident decision writes a provisional alias, which is what makes the
-    resolution durable: the next receipt carrying that string hits Tier 0 and
-    never reaches the model at all.
+    Read-only, and split from applying the answer, so the model call itself can
+    sit outside a transaction. `index` is a position in the pk-ordered line
+    items, which is the ordering `_apply_adjudication` reads back.
     """
     config = MatchConfig.get()
     top_k = config.adjudication_candidates
     if not top_k:
-        return 0
+        return []
 
     lines = list(purchase.line_items.order_by("pk"))
     items = []
@@ -357,11 +407,20 @@ def _adjudicate_residuals(
             )
         )
 
-    if not items:
+    return items
+
+
+def _apply_adjudication(purchase: Purchase, decisions: dict[int, Any]) -> int:
+    """Write what the model decided.
+
+    A confident decision writes a provisional alias, which is what makes the
+    resolution durable: the next receipt carrying that string hits Tier 0 and
+    never reaches the model at all.
+    """
+    if not decisions:
         return 0
 
-    decisions = adjudication.adjudicate(items, client=client)
-
+    lines = list(purchase.line_items.order_by("pk"))
     resolved = 0
     for index, decision in decisions.items():
         if not decision.resolved:

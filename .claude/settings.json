@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "ask": [
+      "Bash(git push)",
+      "Bash(git push *)",
+      "PowerShell(git push)",
+      "PowerShell(git push *)",
+      "Bash(terraform)",
+      "Bash(terraform *)",
+      "PowerShell(terraform)",
+      "PowerShell(terraform *)"
+    ],
+    "allow": [
+      "Bash(*)",
+      "PowerShell(*)",
+      "PowerShell(gcloud *)",
+      "PowerShell(python *)",
+      "PowerShell(curl.exe *)"
+    ]
+  }
+}

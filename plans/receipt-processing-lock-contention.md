@@ -127,22 +127,31 @@ Neither is the fix; both reduce how often the window is contended.
 
 ## Todo steps
 
-1. Confirm whether a `PurchaseLineItem` can carry player disambiguation state
-   before processing completes. This decides whether phase 2 may delete and
-   recreate lines, and everything below depends on the answer.
-2. Split `process_receipt` into the four phases, `@atomic` on 2 and 4 only.
-   Remove the decorator from the function itself.
-3. Make phase 2 idempotent per step 1 — delete-and-recreate, or reconcile.
-4. Test: a crash between phases leaves no duplicate line items when reprocessed.
-   Simulate by raising inside phase 3.
-5. Test: the write window contains no network call. Assert the model client is
-   never invoked inside an open atomic block — a fixture that fails if
-   `connection.in_atomic_block` is true when the fake model is called pins this
-   permanently, and is what stops it regressing.
-6. Test: points still account for products the adjudicator resolved. This is the
-   ordering constraint, and the reason the obvious fix was wrong.
+Steps 1–6 done 2026-07-27, in `spendium/service.py` and
+`spendium/test_processing_transactions.py`.
+
+1. ~~Confirm whether a `PurchaseLineItem` can carry player disambiguation state
+   before processing completes.~~ **It cannot.** `purchase_detail.html` renders
+   the disambiguation section only in its `{% else %}` branch, so prompts never
+   appear while a purchase is `pending`. Phase 2 may therefore delete and
+   recreate lines freely.
+2. ~~Split `process_receipt` into the four phases.~~ `_record_extraction` and
+   `_settle` carry `@atomic`; the function itself no longer does. The status
+   moves to `processed` in `_settle`, last, so a failure anywhere above leaves
+   the purchase pending for the sweep instead of half-read and marked done.
+3. ~~Make phase 2 idempotent.~~ Delete-and-recreate, per step 1.
+4. ~~Test: a crash between phases leaves no duplicate line items.~~
+5. ~~Test: the write window contains no network call.~~ Runs under
+   `django_db(transaction=True)`, because pytest-django otherwise holds every
+   test inside an atomic block and `in_atomic_block` would always be true —
+   which would have made the assertion vacuous. Confirmed to fail when `@atomic`
+   is put back on `process_receipt`.
+6. ~~Test: points still account for products the adjudicator resolved.~~ Pins
+   the ordering constraint that made the obvious fix wrong.
 7. Measure the write window before and after — log the span from first write to
-   commit — so the improvement is a number rather than an assumption.
+   commit — so the improvement is a number rather than an assumption. **Still
+   worth doing:** the split is verified structurally, not empirically, and
+   nothing yet proves the window is actually short in production.
 
 **Then, separately**
 
