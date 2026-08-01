@@ -188,6 +188,82 @@ appears. The cheap fix if it does: a cache-backed session store, which needs ite
 
 ---
 
+## 8. Stores are deduplicated by name only, and nothing merges them
+
+**Where:** `spendium/service.py:70-82`, `spendium/models.py:29-50`
+
+`_resolve_store` matches the printed receipt name case-insensitively and creates
+a new `Store` on a miss. The comment there is honest about it being naive, and
+argues correctly that a fragmented store list costs less than wrongly merging two
+chains, which would pool their aliases and corrupt retailer-scoped matching.
+
+Three things make it debt rather than a settled tradeoff:
+
+- `Store.flag_count` is hard-coded to `0` (`models.py:44`), so the
+  `LifecycleMixin` it inherits can never deprecate anything. The community
+  route out of a duplicate does not exist.
+- There is no `merged_into` and no merge-group resolution. `Product` has both
+  (`models.py:144`, `catalogue.merge_group_ids`), and product ratings aggregate
+  across the group precisely so a merge does not orphan ratings. Stores have
+  no equivalent.
+- Receipt store names are not stable strings. "LOBLAWS", "Loblaws #1234" and
+  "LOBLAW GREAT FOOD" are three records for one chain.
+
+**Why it is getting worse.** Today fragmentation costs a slightly untidy admin
+list. Once stores are rated (`plans/rateable-subjects-and-store-ratings.md`) it
+costs real points: `points.store_points` pays `spend × compute_declaration_points(store)`,
+so two records for one chain accumulate separate survey responses, clear the
+k-threshold separately or not at all, and pay different rates for shopping at
+the same place. Players will notice this before we do.
+
+**Decision:** not fixed as part of store ratings — it is a design problem of its
+own, and store rating is worth shipping without it. It is the natural next plan.
+The cheap partial mitigation, if it bites before then, is admin-side merge with
+a `merged_into` FK mirroring `Product`, since the aggregation code would then be
+the same shape in both places.
+
+---
+
+## 9. `criteria_version` is recorded on every response and read by nothing
+
+**Where:** `surveys/models.py:12,87`, `surveys/ratings.py:11,40`
+
+`Category.criteria_version` is bumped when a question set changes, and every
+`SurveyResponse` records the version in force when it was answered. The field's
+own help text states the guarantee this buys:
+
+> "Responses record the version they were given under, so answers to different
+> questions are never averaged together as though they were the same."
+
+That guarantee does not exist. The field is written at `surveys/service.py:94`,
+`spendium/views.py:402` and by the seeding command, and read only by tests
+asserting it was written. Neither `compute_rating` (`surveys/ratings.py:11`) nor
+`compute_declaration_points` (`:40`) filters, groups or partitions by it — they
+select on `criterion__is_active` and the 365-day window and nothing else. Answers
+given under version 1 and version 2 are pooled exactly as though the field were
+absent.
+
+**Why it matters.** The point of versioning is that a rating means "answers to
+*these* questions". Bump the version — which `seed_spendium_criteria.py --bump-version`
+invites — and the displayed rating silently becomes an average across two
+different question sets, which is the specific outcome the field was added to
+prevent. The rating is not wrong so much as it stops meaning anything precise,
+and nothing in the interface says so.
+
+**Decision:** not fixed alongside store ratings. What to *do* about old-version
+answers is a genuine design question — drop them, decay them, show them
+separately, or hold a rating steady until the new set has enough responses — and
+each has a different effect on what players see the day criteria change. The
+plan `plans/rateable-subjects-and-store-ratings.md` moves the field onto
+`CriterionAnswer` so it is well-defined once a subject can match several
+categories, but deliberately leaves the aggregation untouched.
+
+Worth resolving **before** the first real criteria change rather than after,
+since the ambiguity is invisible until someone bumps a version and then applies
+retroactively to everything already collected.
+
+---
+
 ## Suggested order
 
 1. Items 2 and 3 together — both are `collectstatic` running in the wrong
@@ -198,3 +274,8 @@ appears. The cheap fix if it does: a cache-backed session store, which needs ite
 4. Item 1 — no longer urgent now that one worker makes the cache coherent, but it
    is what pins the worker count. Confirm passkeys work before closing it out.
 5. Items 6 and 7 — recorded, no action, revisit on evidence.
+6. Item 8 — no action until store ratings ship, then reassess. It is the one
+   item on this list that a shipping feature actively makes worse.
+7. Item 9 — no deadline, but a trigger: resolve it before the first deliberate
+   criteria change, not after. Afterwards the fix has to decide what to do with
+   answers already pooled.

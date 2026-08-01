@@ -89,15 +89,42 @@ DATABASES = {
                 "PRAGMA temp_store=MEMORY; "
                 "PRAGMA mmap_size=134217728;"
             ),
-            # How long a writer waits for the lock before giving up. SQLite allows
-            # one writer, and `process_receipt` holds the lock from its first write
-            # through to commit — a window that currently contains an adjudication
-            # call to Gemini. 20s was close enough to that window that a second
-            # writer, often only trying to touch a session row, timed out and
-            # surfaced as "database is locked". Waiting is the right behaviour here;
-            # the window itself is the bug, and shortening it is tracked in
-            # plans/receipt-processing-lock-contention.md.
-            "timeout": 60,
+            # Take the write lock at BEGIN rather than upgrading to it later.
+            #
+            # Without this Django issues a bare `BEGIN`, which is DEFERRED: the
+            # connection takes no lock, becomes a reader at its first SELECT —
+            # pinning a WAL snapshot — and only tries to become a writer when it
+            # first writes. If anything else committed in between, that upgrade
+            # fails outright with SQLITE_BUSY_SNAPSHOT, which SQLite reports
+            # using the same words as ordinary contention: "database is locked".
+            #
+            # It is not contention, and the difference matters because the two
+            # want opposite fixes. A contended writer waits; a stale snapshot
+            # fails instantly, because SQLite does not call the busy handler for
+            # it — no amount of waiting can rescue a snapshot, only a rollback.
+            # That is why raising the timeout below from 20s to 60s bought
+            # nothing at all.
+            #
+            # This made every receipt upload fail: the upload redirects to the
+            # detail page, SESSION_SAVE_EVERY_REQUEST rewrites a session row on
+            # that request, and the process-receipt task was sitting in an open
+            # transaction waiting on Gemini. Deterministic, not a race.
+            # See plans/receipt-upload-database-locked.md, and
+            # core/test_sqlite_transaction_mode.py, which fails without this.
+            #
+            # The cost is that every atomic block now serialises on the write
+            # lock, including read-only ones. At one instance and one worker
+            # that is not a real cost. It would become one if the worker count
+            # rises — which is already load-bearing for other reasons; see
+            # item 1 in plans/operational-debt.md.
+            "transaction_mode": "IMMEDIATE",
+            # How long a writer waits for the lock before giving up. Only
+            # meaningful alongside the setting above: until it was added, the
+            # failure this was raised to prevent bypassed the busy handler
+            # entirely, so this number governed nothing. Now it governs a real
+            # queue. 60s is generous for a live request — see the open question
+            # in plans/receipt-upload-database-locked.md.
+            "timeout": 15,
         },
     }
 }
