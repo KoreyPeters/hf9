@@ -143,11 +143,45 @@ def _get_line(request: HttpRequest, pk: int) -> PurchaseLineItem:
     return get_object_or_404(PurchaseLineItem, pk=pk, purchase__player=request.user)
 
 
-def _prompts_ctx(purchase: Purchase, error: str = "") -> dict[str, object]:
+def _expanded(request: HttpRequest) -> bool:
+    """Whether the player has asked to see past the prompt budget.
+
+    Read from the request on every prompt render, including the re-renders after
+    an answer. Reading it once at page load would not survive them: answering a
+    question would collapse the list back to five and the player would have to
+    expand it again after every single tap, which is worse than not offering
+    expansion at all.
+    """
+    signals = read_signals(request) or {}
+    return bool(signals.get("prompts_expanded"))
+
+
+def _prompts_ctx(
+    purchase: Purchase, request: HttpRequest, error: str = ""
+) -> dict[str, object]:
+    """Context for the prompt section, expanded or not.
+
+    `total_pending` is counted separately rather than measured off `prompts`,
+    because the whole point is to know how many questions exist *beyond* the
+    ones being shown.
+    """
+    total_pending = purchase.line_items.filter(
+        disambiguation_state=PurchaseLineItem.STATE_PENDING
+    ).count()
+    expanded = _expanded(request)
+    prompts = disambiguation.prompt_queue(
+        purchase, limit=total_pending if expanded else None
+    )
     return {
         "purchase": purchase,
-        "prompts": disambiguation.prompt_queue(purchase),
+        "prompts": prompts,
         "error": error,
+        "expanded": expanded,
+        # What the toggle offers, and what makes it absent when there is nothing
+        # behind the cap. Zero when prompting is disabled outright, since
+        # `prompt_queue` returns nothing in that case and there is no "rest" to
+        # show.
+        "hidden_count": max(0, total_pending - len(prompts)) if prompts else 0,
     }
 
 
@@ -156,7 +190,7 @@ def _prompts_response(
 ) -> DatastarResponse:
     html = render_to_string(
         "spendium/partials/disambiguation_section.html",
-        _prompts_ctx(purchase, error),
+        _prompts_ctx(purchase, request, error),
         request=request,
     )
     return DatastarResponse(
@@ -179,7 +213,7 @@ def purchase_detail(request: HttpRequest, pk: int) -> HttpResponse:
         "spendium/purchase_detail.html",
         {
             "line_items": purchase.line_items.select_related("product").order_by("pk"),
-            **_prompts_ctx(purchase),
+            **_prompts_ctx(purchase, request),
         },
     )
 

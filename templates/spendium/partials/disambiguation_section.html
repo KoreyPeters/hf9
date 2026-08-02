@@ -4,8 +4,15 @@ everyone, so this list is deliberately short even when many line items are
 unresolved. Ignoring a prompt is free — every product stays rateable whether or
 not it has been disambiguated.
 {% endcomment %}
+{% comment %}
+  `prompts_expanded` is rendered from the server's view of the world rather than
+  left to whatever the client happened to hold. This element is replaced wholesale
+  after every answer, so a signal declared with a hardcoded false here would
+  collapse the list on each tap — the exact thing that would make expanding
+  useless.
+{% endcomment %}
 <div id="disambiguation-section"
-     data-signals='{"free_text": "", "chosen_product_id": ""}'>
+     data-signals='{"free_text": "", "chosen_product_id": "", "prompts_expanded": {{ expanded|yesno:"true,false" }}}'>
 
   {% if error %}
   <p style="color:#b91c1c;font-size:.8rem;margin:0 0 .75rem">{{ error }}</p>
@@ -127,6 +134,31 @@ not it has been disambiguated.
     </div>
     {% endfor %}
   </div>
+
+  {% comment %}
+    The way out of a queue you cannot answer.
+
+    Prompts are ordered least-identifiable first, which is right by global value
+    and means the questions a player *can* answer in one tap are the ones buried
+    behind the cap. Without this the top five were a wall: the ordering is
+    deliberately stable, so refreshing returned the same five until the purchase
+    was anonymised.
+  {% endcomment %}
+  {% if hidden_count %}
+  <p style="margin:1rem 0 0">
+    <button data-on:click="$prompts_expanded = true; @get('{% url 'spendium:disambiguation_section' purchase.pk %}')"
+            style="font-size:.8rem;color:#1d4ed8;background:none;border:none;padding:0;cursor:pointer">
+      Show the other {{ hidden_count }}
+    </button>
+  </p>
+  {% elif expanded %}
+  <p style="margin:1rem 0 0">
+    <button data-on:click="$prompts_expanded = false; @get('{% url 'spendium:disambiguation_section' purchase.pk %}')"
+            style="font-size:.8rem;color:#6b7280;background:none;border:none;padding:0;cursor:pointer">
+      Show fewer
+    </button>
+  </p>
+  {% endif %}
 
   {% else %}
   <p style="font-size:.875rem;color:#6b7280;margin:0">

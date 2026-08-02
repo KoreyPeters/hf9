@@ -39,8 +39,13 @@ class Prompt:
 
     Recomputing rather than reusing the scores from processing is deliberate:
     the catalogue may have grown since the receipt was read, and the better
-    answer might now exist. It also costs nothing — the matching cascade is
-    offline.
+    answer might now exist. The matching cascade is offline, so it is cheap.
+
+    Cheap *because the queue is budgeted*, though — the cascade runs once per
+    prompt returned, so the budget governs work per page render as well as
+    questions asked. The two are load-bearing on each other, which is easy to
+    miss: `prompt_budget` is admin-editable, and raising it multiplies matching
+    on every view of every purchase, not just the length of the list.
     """
 
     line: PurchaseLineItem
@@ -71,17 +76,34 @@ def _global_pending_counts(normalised: list[str]) -> dict[str, int]:
     return {row["raw_text_normalised"]: row["total"] for row in rows}
 
 
-def prompt_queue(purchase: Any) -> list[Prompt]:
+def prompt_queue(purchase: Any, limit: int | None = None) -> list[Prompt]:
     """The questions worth asking about this receipt, best first and budgeted.
 
     Ordering:
       1. How many pending line items share this string, across all players.
       2. Least confident first, so a coin-flip beats a near-certainty.
       3. Primary key, purely so the order is stable between page loads.
+
+    `limit` overrides the configured budget for one call, which is what the
+    "show the rest" toggle passes. The default budget is the right number to
+    show unprompted; it was the wrong number to make a hard ceiling. Ordering
+    (2) means the lines shown first are the *least* identifiable ones on the
+    receipt, so a player who could not answer the top five had no way to reach
+    the easy confirmations behind them — the same five every time, because
+    ordering (3) is deliberately stable.
+
+    A budget of zero still disables prompting outright, `limit` or not. That
+    setting means "do not ask", and an override that could reach past it would
+    make it mean "do not ask unless the player insists".
+
+    Note that this matches each prompt it returns, so the number returned is
+    also the number of matching cascades run per page render. See the
+    `Prompt` docstring.
     """
     config = MatchConfig.get()
     if not config.prompt_budget:
         return []
+    budget = config.prompt_budget if limit is None else limit
 
     pending = list(
         purchase.line_items.filter(
@@ -101,7 +123,7 @@ def prompt_queue(purchase: Any) -> list[Prompt]:
     pending.sort(key=rank)
 
     prompts = []
-    for line in pending[: config.prompt_budget]:
+    for line in pending[:budget]:
         result = matching.match_line_item(
             line.raw_text, line.interpreted_name, store=purchase.store, config=config
         )

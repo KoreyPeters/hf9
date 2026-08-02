@@ -718,8 +718,10 @@ class MatchConfig(models.Model):
     )
     prompt_budget = models.PositiveIntegerField(
         default=5,
-        help_text="Maximum disambiguation prompts shown per receipt. Players "
-        "who see fifteen icons ignore all of them.",
+        help_text="Maximum disambiguation prompts shown per receipt before the "
+        "player asks for more. Players who see fifteen icons ignore all of "
+        "them. Also caps work: one matching cascade runs per prompt shown, on "
+        "every view of the purchase. Zero disables prompting entirely.",
     )
 
     class Meta:

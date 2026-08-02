@@ -92,6 +92,31 @@ def test_budget_of_zero_disables_prompting(shopper: Player) -> None:
 
 
 @pytest.mark.django_db
+def test_a_limit_overrides_the_budget(shopper: Player) -> None:
+    purchase = make_purchase(shopper)
+    for i in range(12):
+        make_line(purchase, f"ITEM {i}")
+
+    assert len(disambiguation.prompt_queue(purchase)) == 5
+    assert len(disambiguation.prompt_queue(purchase, limit=12)) == 12
+
+
+@pytest.mark.django_db
+def test_a_limit_cannot_reach_past_a_disabled_budget(shopper: Player) -> None:
+    """Zero means "do not ask". An override that got past it would turn that
+    into "do not ask unless the player insists", which is a different setting
+    and not the one the admin chose."""
+    purchase = make_purchase(shopper)
+    for i in range(3):
+        make_line(purchase, f"ITEM {i}")
+    config = MatchConfig.get()
+    config.prompt_budget = 0
+    config.save()
+
+    assert disambiguation.prompt_queue(purchase, limit=3) == []
+
+
+@pytest.mark.django_db
 def test_resolved_lines_are_not_prompted(shopper: Player) -> None:
     purchase = make_purchase(shopper)
     make_line(purchase, "DONE", state=PurchaseLineItem.STATE_RESOLVED)
@@ -442,6 +467,123 @@ def _datastar_post(client, url: str, signals: dict) -> bytes:
     )
     assert resp.status_code == 200
     return b"".join(resp.streaming_content)
+
+
+def _datastar_get(client, url: str, signals: dict) -> bytes:
+    """The GET half of the same plumbing — signals arrive as a query param."""
+    resp = client.get(
+        url,
+        {"datastar": json.dumps(signals)},
+        headers={"Datastar-Request": "true"},
+    )
+    assert resp.status_code == 200
+    return b"".join(resp.streaming_content)
+
+
+# ── Getting past a queue you cannot answer ────────────────────────────────────
+
+
+@pytest.mark.django_db
+def test_the_receipt_offers_the_rest(client, shopper: Player, store: Store) -> None:
+    purchase = make_purchase(shopper, store)
+    Purchase.objects.filter(pk=purchase.pk).update(
+        processing_status=Purchase.STATUS_PROCESSED
+    )
+    for i in range(12):
+        make_line(purchase, f"ITEM {i}")
+
+    client.force_login(shopper)
+    body = client.get(reverse("spendium:purchase_detail", args=[purchase.pk])).content
+
+    assert b"Show the other 7" in body
+
+
+@pytest.mark.django_db
+def test_expanding_shows_everything_pending(
+    client, shopper: Player, store: Store
+) -> None:
+    purchase = make_purchase(shopper, store)
+    for i in range(12):
+        make_line(purchase, f"ITEM {i}")
+
+    client.force_login(shopper)
+    url = reverse("spendium:disambiguation_section", args=[purchase.pk])
+
+    collapsed = _datastar_get(client, url, {"prompts_expanded": False})
+    expanded = _datastar_get(client, url, {"prompts_expanded": True})
+
+    assert collapsed.count(b"ITEM ") == 5
+    assert expanded.count(b"ITEM ") == 12
+    assert b"Show fewer" in expanded
+    assert b"Show the other" not in expanded
+
+
+@pytest.mark.django_db
+def test_answering_while_expanded_stays_expanded(
+    client, shopper: Player, store: Store
+) -> None:
+    """The one that makes expansion worth offering at all.
+
+    The section is replaced wholesale after every answer. If expansion did not
+    survive that, the list would snap back to five on each tap and the player
+    would have to expand again between every question — worse than leaving them
+    stuck behind the cap.
+    """
+    purchase = make_purchase(shopper, store)
+    product = Product.objects.create(canonical_name="Heinz Ketchup")
+    line = make_line(purchase, "HEINZ 750", product=product, confidence="0.750")
+    for i in range(11):
+        make_line(purchase, f"ITEM {i}")
+
+    client.force_login(shopper)
+    body = _datastar_post(
+        client,
+        reverse("spendium:confirm_line", args=[line.pk]),
+        {"prompts_expanded": True},
+    )
+
+    assert body.count(b"ITEM ") == 11, "the list collapsed back to the budget"
+    assert b'"prompts_expanded": true' in body, (
+        "the re-rendered section declares expansion as false, so the next answer "
+        "would collapse it"
+    )
+
+
+@pytest.mark.django_db
+def test_no_toggle_when_everything_fits(client, shopper: Player, store: Store) -> None:
+    purchase = make_purchase(shopper, store)
+    Purchase.objects.filter(pk=purchase.pk).update(
+        processing_status=Purchase.STATUS_PROCESSED
+    )
+    for i in range(3):
+        make_line(purchase, f"ITEM {i}")
+
+    client.force_login(shopper)
+    body = client.get(reverse("spendium:purchase_detail", args=[purchase.pk])).content
+
+    assert b"Show the other" not in body
+    assert b"Show fewer" not in body
+
+
+@pytest.mark.django_db
+def test_no_toggle_when_prompting_is_disabled(
+    client, shopper: Player, store: Store
+) -> None:
+    """A budget of zero means no questions, so there is no "rest" to offer."""
+    purchase = make_purchase(shopper, store)
+    Purchase.objects.filter(pk=purchase.pk).update(
+        processing_status=Purchase.STATUS_PROCESSED
+    )
+    for i in range(12):
+        make_line(purchase, f"ITEM {i}")
+    config = MatchConfig.get()
+    config.prompt_budget = 0
+    config.save()
+
+    client.force_login(shopper)
+    body = client.get(reverse("spendium:purchase_detail", args=[purchase.pk])).content
+
+    assert b"Show the other" not in body
 
 
 @pytest.mark.django_db
