@@ -239,3 +239,29 @@ def submit_free_text(line: PurchaseLineItem, text: str) -> PurchaseLineItem:
     # split its ratings.
     product = catalogue.create_or_cluster(text)
     return _resolve(line, product, line.purchase.player)
+
+
+def accept_reading(line: PurchaseLineItem) -> PurchaseLineItem:
+    """The player agrees with the name we read off the receipt.
+
+    This exists because the interface used to show a reading and offer no way to
+    agree with it. A line nothing in the catalogue matched displayed "We read it
+    as X" and then left the player two options: a candidate list that is usually
+    empty — nothing cleared the noise floor, which is why the line is here at all
+    — or typing out by hand a description already printed on the screen.
+
+    Weighted exactly as if they had typed it. One tap is thinner evidence than
+    typing, and that was weighed: promotion of an alias needs two *distinct*
+    players (`ALIAS_CONFIRMATIONS_REQUIRED`) and a contradiction demotes it, so
+    a careless accept cannot carry the catalogue on its own. The precedent is
+    `confirm` above, which has always been one tap for full player authority.
+
+    Routed through `submit_free_text` rather than to the catalogue directly, so
+    accepting a reading that already names an existing product resolves to that
+    record instead of minting a near-duplicate beside it. The player is agreeing
+    with the words; they are not asserting that nothing already means them.
+    """
+    _require_open_window(line)
+    if not line.interpreted_name:
+        raise ValueError("There is no reading to accept.")
+    return submit_free_text(line, line.interpreted_name)

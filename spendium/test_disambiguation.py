@@ -491,3 +491,234 @@ def test_choose_view_reports_a_missing_selection(
     assert b"No product was selected" in body
     line.refresh_from_db()
     assert line.disambiguation_state == PurchaseLineItem.STATE_PENDING
+
+
+# ── Accepting the reading we already show ─────────────────────────────────────
+#
+# The interface used to display "We read it as X" and offer no way to agree with
+# it. These cover the button that closes that gap, and — more importantly — the
+# things it must not quietly become: a second route into the catalogue that
+# skips clustering, a way to edit a purchase past its window, or a payout.
+
+
+@pytest.mark.django_db
+def test_accepting_resolves_to_an_existing_product(
+    shopper: Player, store: Store
+) -> None:
+    """The clustering path. Accepting must not mint a near-duplicate beside a
+    record that already means the same thing — that is the fragmentation the
+    free-text route was built to avoid, and this route would otherwise reopen
+    it one tap at a time."""
+    existing = Product.objects.create(canonical_name="Mystery Item")
+    line = make_line(make_purchase(shopper, store), "MYSTERY ITEM")
+
+    disambiguation.accept_reading(line)
+
+    line.refresh_from_db()
+    assert line.product == existing
+    assert Product.objects.count() == 1
+    assert line.disambiguation_state == PurchaseLineItem.STATE_RESOLVED
+    assert line.match_tier == MatchTier.PLAYER
+
+
+@pytest.mark.django_db
+def test_accepting_an_unknown_reading_creates_one_unverified_product(
+    shopper: Player, store: Store
+) -> None:
+    line = make_line(make_purchase(shopper, store), "BULK RED LENTILS")
+
+    disambiguation.accept_reading(line)
+
+    line.refresh_from_db()
+    assert Product.objects.count() == 1
+    assert line.product.canonical_name == "Bulk Red Lentils"
+    assert line.product.status == Product.STATUS_UNVERIFIED
+
+
+@pytest.mark.django_db
+def test_two_players_accepting_the_same_string_confirm_one_alias(
+    shopper: Player, other_shopper: Player, store: Store
+) -> None:
+    """The compounding case, and the reason one tap was judged safe enough.
+
+    A single accept resolves only that player's line. It takes two *distinct*
+    players agreeing before the string matches silently for everyone — so a
+    careless tap cannot carry the catalogue on its own.
+    """
+    mine = make_line(make_purchase(shopper, store), "BULK RED LENTILS")
+    theirs = make_line(make_purchase(other_shopper, store), "BULK RED LENTILS")
+
+    disambiguation.accept_reading(mine)
+    disambiguation.accept_reading(theirs)
+
+    mine.refresh_from_db()
+    theirs.refresh_from_db()
+    assert mine.product == theirs.product, "the two accepts split into two records"
+    assert Product.objects.count() == 1
+
+    alias = ProductAlias.objects.get(
+        store=store, raw_text_normalised="bulk red lentils"
+    )
+    assert alias.product == mine.product
+    assert alias.status == ProductAlias.STATUS_AUTHORITATIVE
+
+
+@pytest.mark.django_db
+def test_a_line_with_no_reading_cannot_be_accepted(
+    shopper: Player, store: Store
+) -> None:
+    line = make_line(make_purchase(shopper, store), "???")
+    PurchaseLineItem.objects.filter(pk=line.pk).update(interpreted_name="")
+    line.refresh_from_db()
+
+    with pytest.raises(ValueError):
+        disambiguation.accept_reading(line)
+
+    line.refresh_from_db()
+    assert line.disambiguation_state == PurchaseLineItem.STATE_PENDING
+
+
+@pytest.mark.django_db
+def test_the_button_is_not_offered_without_a_reading(
+    client, shopper: Player, store: Store
+) -> None:
+    purchase = make_purchase(shopper, store)
+    # The prompts render only once the receipt has been read; a pending purchase
+    # shows "We're still reading this" instead, and this would assert nothing.
+    Purchase.objects.filter(pk=purchase.pk).update(
+        processing_status=Purchase.STATUS_PROCESSED
+    )
+    line = make_line(purchase, "???")
+    PurchaseLineItem.objects.filter(pk=line.pk).update(interpreted_name="")
+
+    client.force_login(shopper)
+    response = client.get(reverse("spendium:purchase_detail", args=[purchase.pk]))
+
+    assert reverse("spendium:accept_line_reading", args=[line.pk]).encode() not in (
+        response.content
+    )
+    assert b"We couldn't place this one." in response.content
+
+
+@pytest.mark.django_db
+def test_accepting_past_the_window_changes_nothing(
+    shopper: Player, store: Store
+) -> None:
+    """A closed window blocks the whole route, end to end.
+
+    Note what this does *not* prove. `accept_reading` calls
+    `_require_open_window` itself, but so does `submit_free_text` underneath it,
+    so this passes with either guard present — verified by deleting the one in
+    `accept_reading` and watching this still go green. The redundant guard is
+    covered separately below.
+    """
+    purchase = make_purchase(shopper, store)
+    line = make_line(purchase, "BULK RED LENTILS")
+    Purchase.objects.filter(pk=purchase.pk).update(
+        anonymise_after=timezone.now() - timedelta(days=1)
+    )
+    line.refresh_from_db()
+
+    with pytest.raises(disambiguation.WindowClosedError):
+        disambiguation.accept_reading(line)
+
+    line.refresh_from_db()
+    assert line.product is None
+    assert line.disambiguation_state == PurchaseLineItem.STATE_PENDING
+    assert not Product.objects.exists()
+
+
+@pytest.mark.django_db
+def test_accept_checks_the_window_itself(
+    shopper: Player, store: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The redundant guard, tested where it can actually be seen.
+
+    `accept_reading` delegates to `submit_free_text`, which checks the window
+    too — so the end-to-end test above cannot tell the two apart and passes even
+    with this guard deleted. Stubbing the delegate leaves `accept_reading`'s own
+    check as the only thing that can raise.
+
+    Kept redundant on purpose. This is a public entry point, and the variant
+    discussed in plans/accept-the-suggested-description.md — resolving only into
+    existing records — would stop going through `submit_free_text` at all.
+    """
+    purchase = make_purchase(shopper, store)
+    line = make_line(purchase, "BULK RED LENTILS")
+    Purchase.objects.filter(pk=purchase.pk).update(
+        anonymise_after=timezone.now() - timedelta(days=1)
+    )
+    line.refresh_from_db()
+
+    monkeypatch.setattr(
+        disambiguation,
+        "submit_free_text",
+        lambda *args, **kwargs: pytest.fail("the window was never checked"),
+    )
+    with pytest.raises(disambiguation.WindowClosedError):
+        disambiguation.accept_reading(line)
+
+
+@pytest.mark.django_db
+def test_accepting_does_not_pay_the_player(shopper: Player, store: Store) -> None:
+    """Points settle when the receipt is read and are never revisited.
+
+    Pinned because the prompt is a request for unpaid work on everyone else's
+    behalf, and that is only true for as long as it stays true. If resolving a
+    line ever started paying, these prompts would become a rewarded action —
+    which is a different feature with a different abuse surface.
+    """
+    purchase = make_purchase(shopper, store)
+    Purchase.objects.filter(pk=purchase.pk).update(points_awarded=Decimal("5.00"))
+    line = make_line(purchase, "BULK RED LENTILS")
+    before = Player.objects.get(pk=shopper.pk).total_points
+
+    disambiguation.accept_reading(line)
+
+    purchase.refresh_from_db()
+    assert purchase.points_awarded == Decimal("5.00")
+    assert Player.objects.get(pk=shopper.pk).total_points == before
+
+
+@pytest.mark.django_db
+def test_accept_view_resolves_the_line(client, shopper: Player, store: Store) -> None:
+    purchase = make_purchase(shopper, store)
+    line = make_line(purchase, "BULK RED LENTILS")
+
+    client.force_login(shopper)
+    response = client.post(reverse("spendium:accept_line_reading", args=[line.pk]))
+
+    assert response.status_code == 200
+    line.refresh_from_db()
+    assert line.disambiguation_state == PurchaseLineItem.STATE_RESOLVED
+    assert line.product.canonical_name == "Bulk Red Lentils"
+
+
+@pytest.mark.django_db
+def test_accept_view_is_scoped_to_the_owner(
+    client, shopper: Player, other_shopper: Player, store: Store
+) -> None:
+    line = make_line(make_purchase(other_shopper, store), "BULK RED LENTILS")
+    client.force_login(shopper)
+    response = client.post(reverse("spendium:accept_line_reading", args=[line.pk]))
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_accept_view_ignores_posted_text(client, shopper: Player, store: Store) -> None:
+    """The endpoint accepts what is stored, never what the client sends.
+
+    Otherwise it would be a second, cheaper-looking route for putting arbitrary
+    text into the catalogue, sitting behind a button labelled as agreement.
+    """
+    line = make_line(make_purchase(shopper, store), "BULK RED LENTILS")
+
+    client.force_login(shopper)
+    _datastar_post(
+        client,
+        reverse("spendium:accept_line_reading", args=[line.pk]),
+        {"free_text": "Something Else Entirely"},
+    )
+
+    line.refresh_from_db()
+    assert line.product.canonical_name == "Bulk Red Lentils"

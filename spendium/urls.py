@@ -44,6 +44,11 @@ urlpatterns = [
         "lines/<int:pk>/choose/", views.choose_line_product, name="choose_line_product"
     ),
     path(
+        "lines/<int:pk>/accept/",
+        views.accept_line_reading,
+        name="accept_line_reading",
+    ),
+    path(
         "lines/<int:pk>/describe/",
         views.submit_line_free_text,
         name="submit_line_free_text",

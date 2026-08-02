@@ -335,6 +335,32 @@ push actually happened.
 
 ---
 
+## 11. The Action Centre ignores the prompt budget
+
+**Where:** `spendium/action_centre.py:84-91`, `templates/spendium/action_centre.html:49`
+
+`disambiguation.prompt_queue` caps prompts at `MatchConfig.prompt_budget`
+(default 5) per receipt, and the field's help text gives the reason: "Players
+who see fifteen icons ignore all of them."
+
+`action_centre.unresolved_disambiguations` has no cap. It returns every pending
+line the player has and the template renders all of them. The exact failure the
+per-receipt budget exists to prevent is reachable in one click from the same
+interface, and it grows with every receipt uploaded.
+
+**Decision: left alone, deliberately, 2026-08-02.** Raised while adding the
+Accept button (`plans/accept-the-suggested-description.md`) and declined for now
+— nobody has enough receipts for it to bite yet, and the right cap is probably
+not 5, since a page the player chose to open can reasonably show more than a
+receipt they were merely looking at. Korey will say when it becomes annoying.
+
+Recorded because the trigger is gradual: no single upload makes this bad, so
+there is no moment at which anyone would notice it happening. The Accept button
+also makes it likelier to be noticed, since it gives players a reason to go
+looking for these.
+
+---
+
 ## Suggested order
 
 1. Item 10 — surface the running revision. Cheapest thing on the list, and the
@@ -353,6 +379,8 @@ push actually happened.
 8. Item 9 — no deadline, but a trigger: resolve it before the first deliberate
    criteria change, not after. Afterwards the fix has to decide what to do with
    answers already pooled.
+9. Item 11 — waiting on evidence, and the evidence is Korey finding the Action
+   Centre annoying. Cheap whenever it is picked up.
 
 Item 7 has left this list: it fired on 2026-07-31, was resolved at the database
 configuration rather than at the session store, and is kept above only for the

@@ -47,6 +47,7 @@ AUDIENCE = {
     "disambiguation_section": OWNER_ONLY,
     "confirm_line": OWNER_ONLY,
     "choose_line_product": OWNER_ONLY,
+    "accept_line_reading": OWNER_ONLY,
     "submit_line_free_text": OWNER_ONLY,
 }
 
@@ -133,6 +134,7 @@ def _takes_pk(name: str) -> bool:
         "disambiguation_section",
         "confirm_line",
         "choose_line_product",
+        "accept_line_reading",
         "submit_line_free_text",
     }
 

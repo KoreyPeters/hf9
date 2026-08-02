@@ -228,6 +228,25 @@ def choose_line_product(request: HttpRequest, pk: int) -> DatastarResponse:
 
 @login_required
 @require_POST
+def accept_line_reading(request: HttpRequest, pk: int) -> DatastarResponse:
+    """One tap to agree with the name we read off the receipt.
+
+    Takes no signals: the text being accepted is the one already stored on the
+    line, not anything the client sends. That is deliberate — a description
+    posted from the browser is `submit_line_free_text`'s job, and keeping the two
+    apart means this endpoint cannot be used to put arbitrary text into the
+    catalogue under the cheaper-looking name.
+    """
+    line = _get_line(request, pk)
+    try:
+        disambiguation.accept_reading(line)
+    except (disambiguation.WindowClosedError, ValueError) as exc:
+        return _prompts_response(line.purchase, request, error=str(exc))
+    return _prompts_response(line.purchase, request)
+
+
+@login_required
+@require_POST
 def submit_line_free_text(request: HttpRequest, pk: int) -> DatastarResponse:
     line = _get_line(request, pk)
     signals = read_signals(request) or {}

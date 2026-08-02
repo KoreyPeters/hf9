@@ -15,8 +15,17 @@ not it has been disambiguated.
   <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.1rem;margin:0 0 .25rem">
     Can you check these?
   </h2>
+  {% comment %}
+    The deadline is stated because it exists whether or not we mention it: the
+    purchase is anonymised at `anonymise_after`, and these questions disappear
+    with it. Worded as us stopping rather than the player losing something,
+    which is what actually happens — the line goes on being re-matched against
+    the catalogue afterwards, it is only the asking that ends.
+  {% endcomment %}
   <p style="font-size:.8rem;color:#6b7280;margin:0 0 1rem">
-    Only if you have a moment — everything on this receipt can be rated either way.
+    Only if you have a moment — everything on this receipt can be rated either
+    way.{% if purchase.anonymise_after %} We'll stop asking on
+    {{ purchase.anonymise_after|date:"j F" }}.{% endif %}
   </p>
 
   <div style="display:flex;flex-direction:column;gap:1rem">
@@ -48,13 +57,33 @@ not it has been disambiguated.
         </button>
       </div>
       {% else %}
-      {# No match: nothing in the catalogue cleared the bar. #}
+      {% comment %}
+        No match: nothing in the catalogue cleared the bar.
+
+        The reading leads rather than trailing as an aside, because it is the
+        only description we have and agreeing with it is the cheapest useful
+        answer available here. It used to be shown and then not offered — the
+        player could read our guess but had no way to say yes to it, only to
+        retype it.
+      {% endcomment %}
+      {% if prompt.line.interpreted_name %}
+      <p style="font-size:.9rem;color:#111;margin:.5rem 0 .75rem">
+        We read this as <strong>{{ prompt.line.interpreted_name }}</strong>, but
+        couldn't match it to anything we know. Is that what it was?
+      </p>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.6rem">
+        <button data-on:click="@post('{% url 'spendium:accept_line_reading' prompt.line.pk %}')"
+                data-indicator:_saving
+                data-attr:disabled="$_saving"
+                style="padding:.4rem 1rem;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:.875rem">
+          Yes, that's it
+        </button>
+      </div>
+      {% else %}
       <p style="font-size:.9rem;color:#111;margin:.5rem 0 .75rem">
         We couldn't place this one.
-        {% if prompt.line.interpreted_name %}
-        We read it as <em>{{ prompt.line.interpreted_name }}</em>.
-        {% endif %}
       </p>
+      {% endif %}
       {% endif %}
 
       {% if prompt.candidates %}
