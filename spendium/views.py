@@ -10,12 +10,10 @@ from datastar_py.django import (
 from datastar_py.sse import DatastarEvent
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Count, Q, Sum
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
-from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from points.models import PointTransaction
@@ -54,7 +52,7 @@ def home(request: HttpRequest) -> HttpResponse:
             {
                 "state": "no_purchases",
                 "trial_left": service.trial_uploads_left(request.user),
-                "is_member": _is_member(request.user),
+                "is_member": service.is_member(request.user),
             },
         )
 
@@ -74,7 +72,7 @@ def home(request: HttpRequest) -> HttpResponse:
             "waiting": action_centre.new_item_count(request.user),
             "recent": purchases.order_by("-created_at")[:3],
             "trial_left": service.trial_uploads_left(request.user),
-            "is_member": _is_member(request.user),
+            "is_member": service.is_member(request.user),
             "top_rated": top if len(top) >= DISCOVERY_FLOOR else [],
         },
     )
@@ -102,30 +100,6 @@ def notify(request: HttpRequest) -> Generator[DatastarEvent, None, None]:
         SpendiumWaitlist.objects.get_or_create(email=email)
     fragment = render_to_string("spendium/partials/notify_success.html")
     yield SSE.patch_elements(fragment, selector="#notify-form")
-
-
-def _is_member(player: object) -> bool:
-    """Membership is what pays for receipt scanning past the free trial.
-
-    Not a cost constraint — extraction is cheap per receipt. It is a deliberate
-    product decision to make membership tangibly worth something. See
-    `_may_upload`, which is the gate the views actually use.
-    """
-    try:
-        membership = player.membership
-    except ObjectDoesNotExist:
-        return False
-    return membership.is_active and membership.expires_at > timezone.now()
-
-
-def _may_upload(player: object) -> bool:
-    """Members always; everyone else until the free trial runs out.
-
-    The trial exists because the wall used to arrive before a player had any
-    reason to care about membership — which reads as a bait and switch rather
-    than as a thing worth paying for.
-    """
-    return _is_member(player) or service.trial_uploads_left(player) > 0
 
 
 def _get_purchase(request: HttpRequest, pk: int) -> Purchase:
@@ -319,13 +293,13 @@ def purchase_list(request: HttpRequest) -> HttpResponse:
     return render(
         request,
         "spendium/purchase_list.html",
-        {"purchases": purchases, "is_member": _is_member(request.user)},
+        {"purchases": purchases, "is_member": service.is_member(request.user)},
     )
 
 
 @login_required
 def receipt_upload(request: HttpRequest) -> HttpResponse:
-    if not _may_upload(request.user):
+    if not service.may_upload(request.user):
         return render(request, "spendium/upload_members_only.html", status=403)
 
     error = ""
@@ -356,7 +330,7 @@ def receipt_upload(request: HttpRequest) -> HttpResponse:
         {
             "error": error,
             "max_mb": settings.SPENDIUM["MAX_UPLOAD_BYTES"] // (1024 * 1024),
-            "is_member": _is_member(request.user),
+            "is_member": service.is_member(request.user),
             "trial_left": service.trial_uploads_left(request.user),
         },
     )

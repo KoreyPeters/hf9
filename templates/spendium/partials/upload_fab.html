@@ -1,0 +1,23 @@
+{% if show %}
+{% comment %}
+  Straight to the camera, deliberately: `capture="environment"` is what makes
+  this one tap rather than a chooser. Picking an existing photo lives on the
+  upload page, where there is room for a second button to say what it does.
+
+  No new endpoint. `receipt_upload` already redirects to the new purchase on
+  success — which is where the player wants to be — and re-renders itself with
+  the error on failure, which is the one page with both an explanation and
+  somewhere to try again.
+{% endcomment %}
+<form method="post" action="{% url 'spendium:receipt_upload' %}"
+      enctype="multipart/form-data" class="fab-form">
+  {% csrf_token %}
+  <label class="fab" for="fab-receipt">
+    <span aria-hidden="true">+</span>
+    <span class="visually-hidden">Add a receipt</span>
+  </label>
+  <input type="file" id="fab-receipt" name="receipt"
+         accept="image/*" capture="environment"
+         class="visually-hidden" onchange="this.form.submit()">
+</form>
+{% endif %}

@@ -323,6 +323,211 @@ def test_list_requires_login(client) -> None:
     assert client.get(reverse("spendium:purchase_list")).status_code == 302
 
 
+# ── The receipt shortcut ──────────────────────────────────────────────────────
+#
+# A floating button on Spendium pages that opens the camera and posts straight
+# to `receipt_upload`. Most of what matters is where it does *not* appear: on
+# Polium, to a player who would be met with a 403, and during an emergency stop.
+
+
+FAB_MARKER = b'id="fab-receipt"'
+
+
+@pytest.mark.django_db
+def test_the_shortcut_appears_on_a_spendium_page(client, shopper: Player) -> None:
+    client.force_login(shopper)
+    response = client.get(reverse("spendium:purchase_list"))
+    assert FAB_MARKER in response.content
+
+
+@pytest.mark.django_db
+def test_the_shortcut_stays_off_polium_pages(client, shopper: Player) -> None:
+    """`base.html` is shared between the games.
+
+    Worth its own test because the guard is a template condition on the resolved
+    app name, which nothing else would catch — a receipt button on a ballot page
+    is the most likely way this feature goes wrong.
+    """
+    client.force_login(shopper)
+    response = client.get(reverse("polium:home"))
+    assert response.status_code == 200
+    assert FAB_MARKER not in response.content
+
+
+@pytest.mark.django_db
+def test_the_shortcut_is_not_offered_to_a_player_who_cannot_upload(
+    client, shopper: Player, settings
+) -> None:
+    """The gate has to match the view's. Otherwise the button is a route to a
+    403 page that the player did nothing to deserve."""
+    settings.SPENDIUM = settings.SPENDIUM | {"FREE_TRIAL_UPLOADS": 1}
+    Purchase.objects.create(
+        player=shopper, purchased_at=timezone.now(), total=Decimal("1")
+    )
+    client.force_login(shopper)
+    response = client.get(reverse("spendium:purchase_list"))
+    assert FAB_MARKER not in response.content
+
+
+@pytest.mark.django_db
+def test_the_shortcut_disappears_during_an_emergency_stop(
+    client, shopper: Player
+) -> None:
+    """`accept_upload` would refuse the receipt anyway. Leaving the button up
+    would spend the player's attention and their photo to deliver a message they
+    did not need — the upload page still explains itself for anyone who looks.
+
+    Keyed on `uploads_paused`, not `is_stopped`, and the difference is the whole
+    point. A short stop still accepts uploads and queues them, invisibly and
+    deliberately; only once the stop outlives the image retention window are
+    receipts actually refused. The button should vanish exactly then and not a
+    moment sooner.
+    """
+    from spendium.models import EmergencyStop
+
+    hours: int = settings.SPENDIUM["IMAGE_RETENTION_HOURS"]
+    state = EmergencyStop.get()
+    state.is_stopped = True
+    state.stopped_at = timezone.now() - timedelta(hours=hours + 1)
+    state.save()
+
+    client.force_login(shopper)
+    response = client.get(reverse("spendium:purchase_list"))
+    assert FAB_MARKER not in response.content
+
+
+@pytest.mark.django_db
+def test_the_shortcut_survives_a_short_stop(client, shopper: Player) -> None:
+    """The other half of the line above. A brief outage queues receipts rather
+    than refusing them, and hiding the button would make an invisible stop
+    visible for no reason."""
+    from spendium.models import EmergencyStop
+
+    state = EmergencyStop.get()
+    state.is_stopped = True
+    state.stopped_at = timezone.now()
+    state.save()
+
+    client.force_login(shopper)
+    response = client.get(reverse("spendium:purchase_list"))
+    assert FAB_MARKER in response.content
+
+
+@pytest.mark.django_db
+def test_the_shortcut_is_absent_from_the_upload_page(client, shopper: Player) -> None:
+    """It would be a shortcut to the page already on screen."""
+    client.force_login(shopper)
+    response = client.get(reverse("spendium:receipt_upload"))
+    assert response.status_code == 200
+    assert FAB_MARKER not in response.content
+
+
+@pytest.mark.django_db
+def test_the_shortcut_posts_a_receipt_like_the_upload_page_does(
+    client, shopper: Player, fake_model
+) -> None:
+    """The shortcut has no endpoint of its own — it posts to `receipt_upload`
+    from whatever page it was rendered on, with no referer from the upload
+    form."""
+    fake_model(receipt_payload())
+    client.force_login(shopper)
+    response = client.post(
+        reverse("spendium:receipt_upload"),
+        {"receipt": SimpleUploadedFile("r.png", png_bytes(), content_type="image/png")},
+    )
+    purchase = Purchase.objects.get(player=shopper)
+    assert response.status_code == 302
+    assert response.url == reverse("spendium:purchase_detail", args=[purchase.pk])
+
+
+@pytest.mark.django_db
+def test_a_library_photo_uploads_like_a_camera_photo(
+    client, shopper: Player, fake_model
+) -> None:
+    """Both inputs post `receipt`, and only one is ever filled.
+
+    Django's MultiPartParser skips file parts with no filename, so the untouched
+    control contributes nothing. If that ever stopped being true, the empty
+    input could shadow the real one and uploads would fail with "Choose a photo
+    of your receipt" while holding a photo.
+    """
+    fake_model(receipt_payload())
+    client.force_login(shopper)
+
+    # Built by hand rather than through the test client, which refuses to
+    # construct a file part with an empty name — reasonably, since nothing in
+    # application code should. A browser sends exactly this for a file input the
+    # player never touched, and reproducing it is the only way to test that we
+    # tolerate it.
+    boundary = "----hfboundary"
+    body = b"".join(
+        [
+            f"--{boundary}\r\n".encode(),
+            b'Content-Disposition: form-data; name="receipt"; filename=""\r\n',
+            b"Content-Type: application/octet-stream\r\n\r\n",
+            b"\r\n",
+            f"--{boundary}\r\n".encode(),
+            b'Content-Disposition: form-data; name="receipt"; filename="r.png"\r\n',
+            b"Content-Type: image/png\r\n\r\n",
+            png_bytes(),
+            b"\r\n",
+            f"--{boundary}--\r\n".encode(),
+        ]
+    )
+    response = client.post(
+        reverse("spendium:receipt_upload"),
+        data=body,
+        content_type=f"multipart/form-data; boundary={boundary}",
+    )
+    assert response.status_code == 302, (
+        "the empty input shadowed the real one — the player would be told to "
+        "choose a photo while holding one"
+    )
+    assert Purchase.objects.filter(player=shopper).count() == 1
+
+
+@pytest.mark.django_db
+def test_a_photo_larger_than_the_json_body_limit_still_uploads(
+    client, shopper: Player, fake_model
+) -> None:
+    """Why this is a multipart form and not Datastar signals.
+
+    Datastar's file upload base64-encodes contents into signals and posts them
+    as JSON. `DATA_UPLOAD_MAX_MEMORY_SIZE` is calculated over the request body
+    *excluding* file upload data, so a JSON body counts in full — which caps a
+    receipt at about three quarters of that limit, roughly 1.9MB, and phone
+    photos are routinely larger.
+
+    Multipart is exempt. This test is the property that makes it the right
+    choice; without it the reasoning lives only in
+    plans/upload-from-anywhere.md.
+    """
+    fake_model(receipt_payload())
+
+    # Noise, because the point is the byte count. A patterned image of the same
+    # dimensions compresses to a few kilobytes and would sail under the limit
+    # this exists to cross.
+    import os
+
+    from PIL import Image
+
+    big = image_bytes_from(
+        Image.frombytes("RGB", (1024, 1024), os.urandom(1024 * 1024 * 3))
+    )
+    assert len(big) > settings.DATA_UPLOAD_MAX_MEMORY_SIZE, (
+        "the fixture is too small to exercise the limit it exists to test"
+    )
+    assert len(big) < settings.SPENDIUM["MAX_UPLOAD_BYTES"]
+
+    client.force_login(shopper)
+    response = client.post(
+        reverse("spendium:receipt_upload"),
+        {"receipt": SimpleUploadedFile("big.png", big, content_type="image/png")},
+    )
+    assert response.status_code == 302
+    assert Purchase.objects.filter(player=shopper).exists()
+
+
 # ── The members-only gate ─────────────────────────────────────────────────────
 
 

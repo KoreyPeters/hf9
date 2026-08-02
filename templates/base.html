@@ -1,4 +1,4 @@
-{% load static %}
+{% load static spendium_tags %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Human Flourishing{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'css/nav.css' %}">
+  <link rel="stylesheet" href="{% static 'css/spendium.css' %}">
   <script>
     (function () {
       var _fetch = window.fetch;
@@ -93,6 +94,19 @@
   {% endif %}
 
   <div style="flex:1">{% block content %}{% endblock %}</div>
+
+  {% comment %}
+    Spendium pages only — this layout is shared with Polium, and a receipt
+    button on a ballot page is nonsense. Scoping on the resolved app_name keeps
+    it out of the eight Spendium templates and out of Polium's queries: the tag
+    is never called there, so it never asks whether the player may upload.
+
+    Not on the upload page itself, where it would be a shortcut to the page you
+    are already looking at.
+  {% endcomment %}
+  {% if request.resolver_match.app_name == 'spendium' and request.resolver_match.url_name != 'receipt_upload' %}
+    {% upload_fab %}
+  {% endif %}
 
   <footer style="border-top:1px solid #e5e2dc;padding:1.5rem;text-align:center;font-family:system-ui,sans-serif;font-size:.8125rem;color:#9ca3af">
     <a href="{% url 'about' %}" style="color:#9ca3af;text-decoration:none">About</a>

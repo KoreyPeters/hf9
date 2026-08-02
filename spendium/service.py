@@ -152,6 +152,38 @@ def trial_uploads_left(player: object) -> int:
     return max(0, allowance - trial_uploads_used(player))
 
 
+def is_member(player: object) -> bool:
+    """Membership is what pays for receipt scanning past the free trial.
+
+    Not a cost constraint — extraction is cheap per receipt. It is a deliberate
+    product decision to make membership tangibly worth something. See
+    `may_upload`, which is the gate callers actually want.
+    """
+    from django.core.exceptions import ObjectDoesNotExist
+
+    try:
+        membership = player.membership
+    except ObjectDoesNotExist:
+        return False
+    return membership.is_active and membership.expires_at > timezone.now()
+
+
+def may_upload(player: object) -> bool:
+    """Members always; everyone else until the free trial runs out.
+
+    The trial exists because the wall used to arrive before a player had any
+    reason to care about membership — which reads as a bait and switch rather
+    than as a thing worth paying for.
+
+    Lives here rather than in `views` because it is upload policy, and it is now
+    read from two places that are not each other: the view that serves the
+    upload page, and the template tag deciding whether to offer the shortcut to
+    it. A gate answered differently in those two places is a button that leads
+    to a 403.
+    """
+    return is_member(player) or trial_uploads_left(player) > 0
+
+
 def accept_upload(
     player: Any,
     image_bytes: bytes,
