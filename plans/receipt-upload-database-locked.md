@@ -183,8 +183,10 @@ item 1).
 Item 11 of the old plan says to revisit it once the window is short. Under
 `IMMEDIATE` the number finally means something — it is a real queue rather than
 dead configuration. 60s is too long for a live web request; something nearer 15s
-surfaces a stuck writer instead of pinning a request for a minute. A decision for
-Korey, not a fix.
+surfaces a stuck writer instead of pinning a request for a minute.
+
+**Decided: 15s.** Korey set it alongside the `transaction_mode` change. That
+also closes item 11 of `plans/receipt-processing-lock-contention.md`.
 
 ---
 
@@ -305,17 +307,21 @@ Two things the writing of it turned up, both worth knowing:
 
 **Decisions for Korey**
 
-- [ ] Lower `timeout` from 60s to ~15s now that it governs a real queue?
-- [ ] `SESSION_SAVE_EVERY_REQUEST` — leave as is, accepting the write volume?
+- [x] Lower `timeout` from 60s to ~15s now that it governs a real queue?
+      **Done — Korey set it to 15.**
+- [x] `SESSION_SAVE_EVERY_REQUEST` — leave as is, accepting the write volume?
+      **Left as is.** Recorded in debt item 7, along with why turning it off is
+      not the cheap fix it looks like.
 
 **Register the debt**
 
-- [ ] Add an item to `plans/operational-debt.md`: nothing detects that the
+- [x] Add an item to `plans/operational-debt.md`: nothing detects that the
       running revision has drifted from `origin/main`. A fix sat unpushed for
-      five days while the bug it fixed kept mailing tracebacks.
-- [ ] Amend item 7 (session writes): the predicted symptom was contention; the
+      five days while the bug it fixed kept mailing tracebacks. **Item 10**, and
+      first in the suggested order.
+- [x] Amend item 7 (session writes): the predicted symptom was contention; the
       observed symptom was snapshot invalidation. Worth correcting so the next
       reader is not looking for the wrong thing.
-- [ ] Add a correction note to `plans/receipt-processing-lock-contention.md`
+- [x] Add a correction note to `plans/receipt-processing-lock-contention.md`
       pointing here, so its diagnosis is not taken at face value later. Its
       *remedy* was right; its explanation was not.

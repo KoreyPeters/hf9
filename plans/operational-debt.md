@@ -182,9 +182,36 @@ that a ten-second errand should never meet a login screen — but it multiplies
 writes on a database that permits exactly one writer, and every write becomes WAL
 that Litestream ships to GCS.
 
-**No action now.** First thing to examine if write contention or replication lag
-appears. The cheap fix if it does: a cache-backed session store, which needs item
-1 resolved first, since sessions in `LocMemCache` would not survive across workers.
+**Update 2026-08-02: it happened, and the prediction was half right.**
+
+Every receipt upload was failing with "database is locked", and this was the
+other half of the mechanism — the session write on the redirect after upload is
+what broke the `process-receipt` task's transaction. So the write pressure noted
+here was real and it was load-bearing.
+
+But not through contention, which is what "first thing to examine if write
+contention appears" led the first investigation to look for, and why that
+investigation reached the wrong answer. The session write did not make anything
+*wait*. It committed, instantly and successfully, and thereby invalidated the WAL
+snapshot of a transaction that had been open across a Gemini call — which then
+failed the moment it tried to write. See
+`plans/receipt-upload-database-locked.md`.
+
+Fixed at the other end, by `transaction_mode = "IMMEDIATE"`, so a read-then-write
+transaction takes the write lock up front and has no snapshot to lose. The
+session writes are unchanged and no longer harmful.
+
+**Still no action here**, but the reason has changed. It is no longer a latent
+hazard waiting to bite; it is ordinary write volume, and the thing that made it
+dangerous is gone. What it still costs is WAL that Litestream ships to GCS on
+every authenticated request.
+
+The cheap fix if that ever matters: a cache-backed session store, which needs
+item 1 resolved first, since sessions in `LocMemCache` would not survive across
+workers. Turning off `SESSION_SAVE_EVERY_REQUEST` is *not* the cheap fix — it
+would change `SESSION_COOKIE_AGE` from meaning "a year since you last used it" to
+"a year since you signed up", which is the behaviour the comment above it
+deliberately argues against.
 
 ---
 
@@ -264,18 +291,69 @@ retroactively to everything already collected.
 
 ---
 
+## 10. Nothing notices when production is not running the code we think it is
+
+**Severity: medium**, and it is the one item here that has already cost real
+time rather than merely threatening to.
+
+**Where:** `cloudbuild.yaml`, and the absence of anything else
+
+Deploys are triggered by a push to `origin/main`. There is no check anywhere —
+not in the build, not in the app, not in monitoring — that the revision serving
+traffic is the revision at the head of the branch. Nothing distinguishes "the
+fix is deployed and did not work" from "the fix was never deployed".
+
+**How it bit.** The transaction split that `plans/receipt-processing-lock-contention.md`
+describes was committed on 2026-07-26 as `a598bf5` and not pushed. Production
+went on running `fae4873` for six days, mailing an `OperationalError` traceback
+on every receipt upload, while the working tree contained a fix for it and a
+plan document describing that fix in the past tense. The traceback itself was
+the only thing that gave it away, and only because a stack frame
+(`contextlib.py`, from an `@atomic` decorator that no longer exists in the
+working tree) happened to be inconsistent with the current source.
+
+That is a bad detection story. It relied on reading a traceback closely enough
+to notice a frame that should not have been there. A slightly different bug —
+one whose traceback was consistent with both revisions — would have sent the
+investigation into the current source looking for a fault that had already been
+fixed there.
+
+**Why the existing checks do not cover it.** `cloudbuild.yaml:63` smoke-tests a
+deploy that ran. Nothing tests for a deploy that never started. The monitoring
+in `monitoring.tf` watches the running service's behaviour, which is exactly the
+thing that looks normal when old code is running correctly.
+
+**Decide:** the cheap version is to bake `$SHORT_SHA` into the image as an env
+var and surface it — a `/healthz` field, a log line at boot, or the admin
+footer. That alone converts "is the fix live?" from an inference into a lookup.
+The thorough version compares it to `origin/main` and alerts on drift, which is
+more machinery than this project needs today.
+
+Worth pairing with a habit rather than only a tool: the working agreement ends
+at "Korey commits and pushes", and nothing in the loop closes over whether the
+push actually happened.
+
+---
+
 ## Suggested order
 
-1. Items 2 and 3 together — both are `collectstatic` running in the wrong
+1. Item 10 — surface the running revision. Cheapest thing on the list, and the
+   only one that has already wasted a debugging session rather than merely
+   threatening to.
+2. Items 2 and 3 together — both are `collectstatic` running in the wrong
    container, and both are small.
-2. Item 5 — track database size. Cheapest remaining item, and the only one whose
-   absence means a failure arrives with no warning.
-3. Item 4 — a decision to make deliberately rather than a bug to fix.
-4. Item 1 — no longer urgent now that one worker makes the cache coherent, but it
+3. Item 5 — track database size. The only remaining item whose absence means a
+   failure arrives with no warning at all.
+4. Item 4 — a decision to make deliberately rather than a bug to fix.
+5. Item 1 — no longer urgent now that one worker makes the cache coherent, but it
    is what pins the worker count. Confirm passkeys work before closing it out.
-5. Items 6 and 7 — recorded, no action, revisit on evidence.
-6. Item 8 — no action until store ratings ship, then reassess. It is the one
+6. Item 6 — recorded, no action, revisit on evidence.
+7. Item 8 — no action until store ratings ship, then reassess. It is the one
    item on this list that a shipping feature actively makes worse.
-7. Item 9 — no deadline, but a trigger: resolve it before the first deliberate
+8. Item 9 — no deadline, but a trigger: resolve it before the first deliberate
    criteria change, not after. Afterwards the fix has to decide what to do with
    answers already pooled.
+
+Item 7 has left this list: it fired on 2026-07-31, was resolved at the database
+configuration rather than at the session store, and is kept above only for the
+correction it carries — the symptom it predicted was not the symptom it produced.

@@ -1,5 +1,24 @@
 # Get the network calls out of the write transaction
 
+> **Correction, 2026-08-02.** The remedy in this document is right and shipped.
+> Its explanation of *why* the failure happened is wrong, and the section "What
+> actually happens" below should not be trusted.
+>
+> This plan says other writers waited on a held lock and timed out. They did not.
+> Production runs one Cloud Run instance and one uvicorn worker, so there was no
+> second writer to wait, and the busy timeout this plan raised from 20s to 60s
+> was never reached — the failure was immediate. The real mechanism was
+> `SQLITE_BUSY_SNAPSHOT`: a transaction opened with `BEGIN DEFERRED` pinned a WAL
+> snapshot at its first read, held it across a Gemini call, and could not upgrade
+> to a writer once anything else had committed.
+>
+> Shortening the write window — what this plan did — made it far less likely, and
+> that work stands. What actually closed it was `transaction_mode = "IMMEDIATE"`.
+> See `plans/receipt-upload-database-locked.md`.
+>
+> Left standing rather than rewritten, because the reasoning is the record, and a
+> wrong diagnosis that survived two mitigations is worth being able to re-read.
+
 `process_receipt` holds SQLite's single write lock across a call to Gemini. Any
 other writer waits, times out, and surfaces as `OperationalError: database is
 locked`. Observed in production 2026-07-26 22:12 UTC.

@@ -119,11 +119,12 @@ DATABASES = {
             # item 1 in plans/operational-debt.md.
             "transaction_mode": "IMMEDIATE",
             # How long a writer waits for the lock before giving up. Only
-            # meaningful alongside the setting above: until it was added, the
-            # failure this was raised to prevent bypassed the busy handler
-            # entirely, so this number governed nothing. Now it governs a real
-            # queue. 60s is generous for a live request — see the open question
-            # in plans/receipt-upload-database-locked.md.
+            # meaningful alongside the setting above: until that was added, the
+            # failure this was once raised to 60s to prevent bypassed the busy
+            # handler entirely, so this number governed nothing. Now it governs a
+            # real queue, and 15s is chosen for one — long enough to outlast any
+            # honest write, short enough that a stuck writer surfaces as an error
+            # instead of pinning a request for a minute.
             "timeout": 15,
         },
     }
