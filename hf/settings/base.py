@@ -197,6 +197,19 @@ AUTHENTICATION_BACKENDS = [
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 365
 SESSION_SAVE_EVERY_REQUEST = True
 
+# Cloudflare Turnstile — the bot check on signup.
+#
+# Empty by default so development and the test suite need no keys and make no
+# network calls: `turnstile.verify` short-circuits to True when the secret is
+# blank *and* DEBUG is on. In production the same blank secret refuses every
+# signup, and a system check refuses the deploy before it can — see
+# `accounts/turnstile.py` and `plans/bot-signups.md`.
+#
+# The site key is public by design; it is rendered into the page. Only the
+# secret is a secret.
+TURNSTILE_SITE_KEY = config("TURNSTILE_SITE_KEY", default="", cast=clean)
+TURNSTILE_SECRET_KEY = config("TURNSTILE_SECRET_KEY", default="", cast=clean)
+
 # django-sesame — magic link tokens
 SESAME_MAX_AGE = 900
 SESAME_ONE_TIME = True

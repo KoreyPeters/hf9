@@ -30,6 +30,11 @@ locals {
     "TASK_SERVICE_ACCOUNT",
     "DJANGO_SUPERUSER_EMAIL",
     "DJANGO_SUPERUSER_PASSWORD",
+    # Cloudflare Turnstile. Only the secret lives here — the site key is public
+    # and is rendered into the signup page, so it is plain config in
+    # cloud_run.tf. Absent, the app refuses every signup and a system check
+    # refuses the deploy first.
+    "TURNSTILE_SECRET_KEY",
   ])
 }
 

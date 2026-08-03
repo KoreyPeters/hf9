@@ -49,6 +49,14 @@ variable "vertex_billing_service" {
   default     = ""
 }
 
+# ── Bot protection ────────────────────────────────────────────────────────────
+
+variable "turnstile_site_key" {
+  type        = string
+  description = "Cloudflare Turnstile site key for the signup form. Public — it is rendered into the page — so it lives in tfvars rather than Secret Manager. The matching secret key is a Secret Manager entry named TURNSTILE_SECRET_KEY. Empty means signup refuses every submission in production, and the app's system check will fail the deploy."
+  default     = ""
+}
+
 variable "alert_emails" {
   type        = list(string)
   description = "Addresses notified when hf-app returns 5xx. Defaults to budget_alert_emails so one address in tfvars covers both."

@@ -222,6 +222,195 @@ def test_signup_redirects_to_welcome(client):
     assert resp["Location"] == "/accounts/welcome/"
 
 
+# ── The bot check on signup ───────────────────────────────────────────────────
+#
+# Added after twenty automated signups against a harvested email list, each of
+# which made us mail a real stranger — see plans/bot-signups.md. The tests that
+# matter are the ones about what happens when the check is misconfigured or
+# unreachable, because those are the states that quietly turn it off.
+
+
+@pytest.mark.django_db
+def test_a_signup_without_a_turnstile_token_is_refused(client, settings, monkeypatch):
+    """And crucially, refused *before* anything is created or mailed."""
+    from django.core import mail
+    from django.core.cache import cache
+
+    from accounts import turnstile
+    from accounts.models import Player
+
+    cache.clear()
+    settings.TURNSTILE_SECRET_KEY = "configured"
+    monkeypatch.setattr(
+        turnstile,
+        "_siteverify",
+        lambda payload: pytest.fail("no token should mean no network call"),
+    )
+
+    resp = client.post(
+        "/accounts/signup/",
+        {"email": "bot@example.com", "display_name": "Bot"},
+    )
+
+    assert resp.status_code == 200
+    assert not Player.objects.filter(email="bot@example.com").exists()
+    assert mail.outbox == [], "we mailed the address before proving anyone owns it"
+
+
+@pytest.mark.django_db
+def test_a_rejected_challenge_creates_no_account(client, settings, monkeypatch):
+    from django.core import mail
+    from django.core.cache import cache
+
+    from accounts import turnstile
+    from accounts.models import Player
+
+    cache.clear()
+    settings.TURNSTILE_SECRET_KEY = "configured"
+    monkeypatch.setattr(turnstile, "_siteverify", lambda payload: {"success": False})
+
+    resp = client.post(
+        "/accounts/signup/",
+        {
+            "email": "bot@example.com",
+            "display_name": "Bot",
+            "cf-turnstile-response": "wrong",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert not Player.objects.filter(email="bot@example.com").exists()
+    assert mail.outbox == []
+
+
+@pytest.mark.django_db
+def test_a_passing_challenge_lets_a_real_person_through(client, settings, monkeypatch):
+    from django.core.cache import cache
+
+    from accounts import turnstile
+    from accounts.models import Player
+
+    cache.clear()
+    settings.TURNSTILE_SECRET_KEY = "configured"
+    monkeypatch.setattr(turnstile, "_siteverify", lambda payload: {"success": True})
+
+    resp = client.post(
+        "/accounts/signup/",
+        {
+            "email": "real@example.com",
+            "display_name": "Real Person",
+            "cf-turnstile-response": "ok",
+        },
+    )
+
+    assert resp.status_code == 302
+    assert Player.objects.filter(email="real@example.com").exists()
+
+
+def test_an_unreachable_cloudflare_fails_closed(settings, monkeypatch):
+    """Treating a network failure as a pass would hand over the bypass.
+
+    Making a third party unreachable from our container is easier than solving
+    the challenge, so "Cloudflare timed out" must not mean "come in".
+    """
+    import urllib.error
+
+    from accounts import turnstile
+
+    settings.TURNSTILE_SECRET_KEY = "configured"
+
+    def explode(payload):
+        raise urllib.error.URLError("down")
+
+    monkeypatch.setattr(turnstile, "_siteverify", explode)
+    assert turnstile.verify("token") is False
+
+
+def test_a_missing_secret_fails_closed_in_production(settings, monkeypatch):
+    """The misconfiguration that would otherwise disable the check silently.
+
+    Waving signups through when the secret is absent is the failure nobody
+    notices until they read the user table — which is exactly how this got
+    found the first time.
+    """
+    from accounts import turnstile
+
+    settings.DEBUG = False
+    settings.TURNSTILE_SECRET_KEY = ""
+    monkeypatch.setattr(
+        turnstile,
+        "_siteverify",
+        lambda payload: pytest.fail("no secret should mean no network call"),
+    )
+    assert turnstile.verify("anything") is False
+
+
+def test_the_check_is_skipped_in_development(settings):
+    """So the suite and a local runserver need no Cloudflare account. Keyed on
+    DEBUG, so it cannot follow a missing env var into production."""
+    from accounts import turnstile
+
+    settings.DEBUG = True
+    settings.TURNSTILE_SECRET_KEY = ""
+    assert turnstile.verify("") is True
+
+
+def test_a_production_deploy_without_keys_fails_the_system_check(settings):
+    """What makes failing closed safe to choose: the deploy stops before any
+    player meets a signup form that refuses everyone."""
+    from accounts.turnstile import check_turnstile_configured
+
+    settings.DEBUG = False
+    settings.TURNSTILE_SITE_KEY = ""
+    settings.TURNSTILE_SECRET_KEY = ""
+    errors = check_turnstile_configured(None)
+    assert [e.id for e in errors] == ["accounts.E001"]
+
+    settings.TURNSTILE_SITE_KEY = "site"
+    settings.TURNSTILE_SECRET_KEY = "secret"
+    assert check_turnstile_configured(None) == []
+
+
+@pytest.mark.django_db
+def test_the_widget_survives_a_form_error(client, settings):
+    """Every error path re-renders this form. One that dropped the site key
+    would render a form with no widget, which submits with no token and is
+    refused — a dead end that looks like a broken site."""
+    from django.core.cache import cache
+
+    cache.clear()
+    settings.TURNSTILE_SITE_KEY = "site-key-here"
+
+    resp = client.post("/accounts/signup/", {"email": "", "display_name": ""})
+
+    assert resp.status_code == 200
+    assert b"site-key-here" in resp.content
+
+
+# ── Outbound mail identity ────────────────────────────────────────────────────
+
+
+@pytest.mark.django_db
+def test_account_mail_comes_from_the_configured_sender(client, settings):
+    """Both send sites used to hardcode noreply@humanflourishing.org — a third
+    domain, matching neither DEFAULT_FROM_EMAIL nor MAILGUN_SENDER_DOMAIN, and
+    one the project no longer owns. Mail from a domain we cannot sign fails
+    alignment at the receiver, and its bounces belong to whoever holds the
+    domain now."""
+    from django.core import mail
+    from django.core.cache import cache
+
+    cache.clear()
+    resp = client.post(
+        "/accounts/signup/",
+        {"email": "sender@example.com", "display_name": "Sender"},
+    )
+
+    assert resp.status_code == 302
+    assert mail.outbox, "signup sent no verification mail"
+    assert mail.outbox[0].from_email == settings.DEFAULT_FROM_EMAIL
+
+
 # ── Verification reminder task ────────────────────────────────────────────────
 
 

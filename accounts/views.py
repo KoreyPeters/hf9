@@ -60,40 +60,64 @@ def magic_link_request(request: HttpRequest) -> HttpResponse:
     return render(request, "accounts/magic_link_sent.html", {"email": email})
 
 
+def _signup_page(request: HttpRequest, **context: object) -> HttpResponse:
+    """Render the signup form, always carrying the Turnstile site key.
+
+    Every error path re-renders this form, and a render that forgot the key
+    would drop the widget — leaving a form that looks fine, submits without a
+    token, and is refused. Centralised so that cannot happen one branch at a
+    time.
+    """
+    return render(
+        request,
+        "accounts/signup.html",
+        {"turnstile_site_key": settings.TURNSTILE_SITE_KEY, **context},
+    )
+
+
 def signup(request: HttpRequest) -> HttpResponse:
     from .ratelimit import check_rate_limit
 
     if request.method == "GET":
         email = request.GET.get("email", "")
-        return render(request, "accounts/signup.html", {"prefill_email": email})
+        return _signup_page(request, prefill_email=email)
 
     if not check_rate_limit(request, "signup", limit=5):
-        return render(
-            request,
-            "accounts/signup.html",
-            {"error": "Too many requests. Try again later."},
-        )
+        return _signup_page(request, error="Too many requests. Try again later.")
 
     email = request.POST.get("email", "").strip().lower()
     display_name = request.POST.get("display_name", "").strip()
     country = request.POST.get("jurisdiction_country", "").strip()
     region = request.POST.get("jurisdiction_region", "").strip()
 
-    if not email or not display_name:
-        return render(
+    # Checked before the account is created, and so before anything is mailed.
+    # That ordering is the entire point: a signup sends a verification email to
+    # an address nobody has proved they own, so an unchallenged bot does not
+    # merely make a junk account — it makes us mail a stranger, repeatedly.
+    from . import turnstile
+
+    if not turnstile.verify(
+        request.POST.get("cf-turnstile-response", ""),
+        remote_ip=request.META.get("REMOTE_ADDR", ""),
+    ):
+        return _signup_page(
             request,
-            "accounts/signup.html",
-            {"error": "Name and email are required.", "prefill_email": email},
+            error="We could not confirm you are a person. Please try again.",
+            prefill_email=email,
+        )
+
+    if not email or not display_name:
+        return _signup_page(
+            request,
+            error="Name and email are required.",
+            prefill_email=email,
         )
 
     if Player.objects.filter(email=email).exists():
-        return render(
+        return _signup_page(
             request,
-            "accounts/signup.html",
-            {
-                "error": "An account with that email already exists.",
-                "prefill_email": email,
-            },
+            error="An account with that email already exists.",
+            prefill_email=email,
         )
 
     from .utils import generate_username

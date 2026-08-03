@@ -29,7 +29,9 @@ def send_verification_reminder(player_id: int) -> None:
             "Log in to Human Flourishing and click the verification link in your inbox, "
             "or request a new one from inside the app."
         ),
-        from_email="noreply@humanflourishing.org",
+        # DEFAULT_FROM_EMAIL. See the note in email_verification.py — the
+        # address hardcoded here was on a domain the project no longer owns.
+        from_email=None,
         recipient_list=[player.email],
     )
 

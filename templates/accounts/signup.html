@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Sign up — Human Flourishing{% endblock %}
+{% block extra_head %}
+{% if turnstile_site_key %}
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+{% endif %}
+{% endblock %}
 {% block content %}
 <main style="max-width:560px;margin:4rem auto;padding:0 1.5rem;font-family:system-ui,sans-serif">
   <h1 style="font-family:Georgia,serif;font-weight:normal;margin-bottom:.5rem">Create your account</h1>
@@ -56,6 +61,17 @@
       <a href="{% url 'spendium:privacy' %}" style="color:#555">Spendium</a>
       privacy policies.
     </p>
+
+    {% comment %}
+      The bot check. Rendered only when a site key is configured, so development
+      needs no Cloudflare account and the form still works — the server side
+      skips verification under DEBUG for the same reason. In production the key
+      is always present: a system check refuses the deploy otherwise.
+    {% endcomment %}
+    {% if turnstile_site_key %}
+    <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}"
+         style="margin-bottom:1rem"></div>
+    {% endif %}
 
     <button type="submit" style="width:100%;padding:.75rem;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:1rem;cursor:pointer">
       Create account

@@ -52,6 +52,15 @@ resource "google_cloud_run_v2_service" "app" {
         value = "/data/db.sqlite3"
       }
 
+      # Cloudflare Turnstile's site key. Public by design — it is rendered into
+      # the signup page — so it is plain config rather than a secret, and
+      # keeping it visible here is what makes the pairing with
+      # TURNSTILE_SECRET_KEY checkable. The secret half is in secrets.tf.
+      env {
+        name  = "TURNSTILE_SITE_KEY"
+        value = var.turnstile_site_key
+      }
+
       dynamic "env" {
         for_each = local.secret_ids
         content {

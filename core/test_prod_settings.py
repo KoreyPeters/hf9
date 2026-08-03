@@ -32,6 +32,7 @@ REQUIRED_ENV = {
     "TASK_BASE_URL": "https://example.com",
     "TASK_SERVICE_ACCOUNT": "s@example.com",
     "LITESTREAM_GCS_BUCKET": "l",
+    "TURNSTILE_SECRET_KEY": "t",
 } | {
     f"SQID_SALT_{name}": "abcdefghijklmnopqrstuvwxyz0123456789"
     for name in (

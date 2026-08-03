@@ -361,6 +361,31 @@ looking for these.
 
 ---
 
+## 12. Rate limit counters do not survive a cold start
+
+**Where:** `accounts/ratelimit.py`, `hf/settings/prod.py:13`,
+`terraform/cloud_run.tf` (`min_instance_count = 0`)
+
+`check_rate_limit` keeps its counters in the default cache, which in production
+is `LocMemCache` — in-process, and gone when the process is. `min_instance_count`
+is zero, so the container is recycled whenever traffic stops. Every cold start
+resets every rate limit in the app: signup, verification resend, everything built
+on this helper.
+
+A consequence of item 1 rather than a separate fault, but listed separately
+because item 1 is written as a *correctness* problem about shared caches and this
+is an *abuse control* silently reset on a schedule an attacker does not even have
+to know about.
+
+**Decide:** with Redis, this is free — the counters simply live somewhere that
+outlives the process. Until then it is worth knowing that the documented limits
+are upper bounds under sustained traffic and nothing at all under intermittent
+traffic.
+
+Found 2026-08-02 while investigating `plans/bot-signups.md`.
+
+---
+
 ## Suggested order
 
 1. Item 10 — surface the running revision. Cheapest thing on the list, and the
@@ -381,6 +406,8 @@ looking for these.
    answers already pooled.
 9. Item 11 — waiting on evidence, and the evidence is Korey finding the Action
    Centre annoying. Cheap whenever it is picked up.
+10. Item 12 — folded into item 1 whenever Redis lands. Worth knowing before then
+    that the signup rate limit is weaker than it reads.
 
 Item 7 has left this list: it fired on 2026-07-31, was resolved at the database
 configuration rather than at the session store, and is kept above only for the

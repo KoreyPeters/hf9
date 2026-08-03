@@ -24,10 +24,17 @@ def send_verification_email(request: HttpRequest, player: Player) -> None:
         + timedelta(hours=settings.EMAIL_VERIFICATION_TTL_HOURS),
     )
     link = request.build_absolute_uri(f"/accounts/verify-email/{raw}/")
+    # `None` means DEFAULT_FROM_EMAIL. This used to hardcode
+    # noreply@humanflourishing.org — a third domain, matching neither
+    # DEFAULT_FROM_EMAIL nor MAILGUN_SENDER_DOMAIN, and one the project no
+    # longer owns. Mail from a domain we cannot publish SPF or DKIM for fails
+    # alignment at the receiver, so verification mail was being rejected or
+    # spam-filed; and once the domain changes hands, its bounces and replies
+    # belong to somebody else.
     send_mail(
         subject="Verify your Human Flourishing email",
         message=f"Click to verify your email address:\n\n{link}",
-        from_email="noreply@humanflourishing.org",
+        from_email=None,
         recipient_list=[player.email],
     )
 
