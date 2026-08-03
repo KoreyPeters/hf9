@@ -212,10 +212,42 @@ that matters:
       runserver need no Cloudflare account and make no network calls. Keyed on
       `DEBUG` specifically so it cannot follow a missing env var into
       production.
-- [x] A system check refuses a production deploy with no keys — confirmed by
-      running `run_checks()` under `hf.settings.prod`, not merely unit-tested.
-      This is what makes failing closed safe to choose: the alternative is
-      discovering it through players who cannot sign up.
+- [x] A system check reports missing keys at deploy — confirmed by running
+      `manage.py migrate` under `hf.settings.prod`, not merely unit-tested.
+      **Originally an `Error`, and that was a mistake — see below.**
+
+### Correction: the check took production down
+
+Shipped as an `Error`-level system check. `migrate` inherits
+`requires_system_checks = "__all__"` and runs at container start
+(`start.sh:10`), so the Error exited non-zero, uvicorn never started, and Cloud
+Run crash-looped revision `hf-app-00034-v98` on 2026-08-02.
+
+Nothing was actually lost — `cloudbuild.yaml` deploys `--no-traffic`, smoke
+tests, then cuts over, so traffic stayed on the previous revision throughout.
+The pipeline caught it. Configuration drift on an already-live service would
+not have been caught by anything.
+
+The error in judgement is worth recording, because it was argued for explicitly
+and the argument sounded reasonable: a signup form that silently refuses
+everybody is a bad failure, so make it loud. True. But the version chosen was so
+loud it stopped the whole service — Polium, receipt processing, every task
+endpoint — over a key belonging to one form. **The blast radius of a guard must
+not exceed the thing it guards**, and "fail closed" applies to the control, not
+to the process hosting it.
+
+Now:
+
+- the check is a `Warning`, so the deploy proceeds and the message is still in
+  the build output;
+- `verify` still fails closed, so signup refuses rather than admitting bots;
+- the `accounts` logger is wired to `mail_admins` in `prod.py`, so the first
+  attempted signup turns the misconfiguration into an email — which is real
+  detection, unlike a log line, and covers the case the deploy-time check never
+  could, namely drift after a successful deploy.
+
+Verified by running `manage.py migrate` under production settings with no keys:
+exit 0, migrations applied, `accounts.W001` printed.
 - [x] All signup renders go through `_signup_page`, so no error branch can drop
       the widget and leave a form that submits without a token. Tested.
 - [x] Terraform: `TURNSTILE_SECRET_KEY` in `secrets.tf`, `turnstile_site_key`
@@ -248,8 +280,9 @@ Two manual steps, both Korey's, because neither is mine to do:
    reads secrets as data sources, so a missing one fails `plan` rather than the
    app — and `terraform apply` needs your hands on it either way.
 
-Until both exist, a production deploy will fail its system check rather than
-starting up with signup quietly unprotected. That ordering is deliberate.
+Until both exist, a deploy will boot and warn, and signup will refuse every
+submission. It will not take the service down — that was the first version's
+behaviour and it was wrong; see the correction above.
 
 **Also worth a look while you are in Cloudflare:** whether
 `humanflourishing.org` still resolves anywhere, and whether any published link

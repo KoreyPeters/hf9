@@ -355,16 +355,32 @@ def test_the_check_is_skipped_in_development(settings):
     assert turnstile.verify("") is True
 
 
-def test_a_production_deploy_without_keys_fails_the_system_check(settings):
-    """What makes failing closed safe to choose: the deploy stops before any
-    player meets a signup form that refuses everyone."""
+def test_missing_keys_warn_without_stopping_the_boot(settings):
+    """A warning, deliberately, and this is the interesting assertion.
+
+    It used to be an `Error`. `migrate` runs all system checks and runs at
+    container start, so an Error exited non-zero, the container never listened
+    on its port, and Cloud Run crash-looped the revision — a missing signup key
+    taking Polium and receipt processing down with it. Observed in production on
+    2026-08-02.
+
+    A check whose blast radius exceeds the thing it checks is worse than the
+    problem. `verify` still refuses signups; only the boot is spared.
+    """
+    from django.core.checks import Error
+
     from accounts.turnstile import check_turnstile_configured
 
     settings.DEBUG = False
     settings.TURNSTILE_SITE_KEY = ""
     settings.TURNSTILE_SECRET_KEY = ""
-    errors = check_turnstile_configured(None)
-    assert [e.id for e in errors] == ["accounts.E001"]
+
+    results = check_turnstile_configured(None)
+    assert [r.id for r in results] == ["accounts.W001"]
+    assert not any(isinstance(r, Error) for r in results), (
+        "an Error here aborts `manage.py migrate`, which start.sh runs before "
+        "uvicorn — the whole service would fail to boot over a signup key"
+    )
 
     settings.TURNSTILE_SITE_KEY = "site"
     settings.TURNSTILE_SECRET_KEY = "secret"

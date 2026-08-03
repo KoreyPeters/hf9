@@ -9,8 +9,12 @@ Two properties matter more than the mechanism:
 **It fails closed.** A missing secret in production means every signup is
 refused, not that every signup is waved through. An abuse control that silently
 disables itself on a misconfiguration is worse than none, because nothing looks
-wrong until you read the user table. `check_turnstile_configured` makes the
-misconfiguration loud at deploy time so that failing closed stays theoretical.
+wrong until you read the user table.
+
+**And it fails closed only on signup.** The first version of this raised an
+`Error` system check, which stopped the container booting at all — a missing
+signup key taking down receipt processing and Polium with it. See
+`check_turnstile_configured` for why that is now a warning.
 
 **It is skipped in development, and only there.** The skip is conditioned on
 `DEBUG`, so it cannot follow a missing environment variable into production.
@@ -23,7 +27,7 @@ import urllib.parse
 import urllib.request
 
 from django.conf import settings
-from django.core.checks import Error, register
+from django.core.checks import Warning, register
 
 logger = logging.getLogger(__name__)
 
@@ -80,12 +84,29 @@ def verify(token: str, remote_ip: str = "") -> bool:
 
 
 @register()
-def check_turnstile_configured(app_configs: object, **kwargs: object) -> list[Error]:
-    """Refuse to start a production deploy with no Turnstile keys.
+def check_turnstile_configured(app_configs: object, **kwargs: object) -> list[Warning]:
+    """Say loudly that Turnstile is unconfigured. Do not stop the boot.
 
-    This is what makes failing closed safe to choose. Without it, a missing
-    secret would be discovered by players being unable to sign up; with it, the
-    deploy never happens.
+    A Warning rather than an Error, and the distinction was learned the hard
+    way. `migrate` inherits `requires_system_checks = "__all__"` and runs at
+    container start (`start.sh:10`), so an Error here is not advice — it exits
+    non-zero, the container never listens on the port, and Cloud Run
+    crash-loops the revision. That took a missing key for a signup widget and
+    turned it into every part of the service failing to start: Polium, receipt
+    processing, the task endpoints, all of it.
+
+    Wrong trade. The blast radius of the guard has to be no larger than the
+    thing it guards. So:
+
+    * this warns, and the deploy proceeds;
+    * `verify` still fails closed, so signup refuses rather than letting bots
+      through;
+    * the error it logs reaches `mail_admins` (see `LOGGING` in prod), so the
+      first person to attempt a signup turns the misconfiguration into an email
+      rather than a line in a log nobody is reading.
+
+    Loud, contained, and detectable — which is what "fail closed" was supposed
+    to buy in the first place.
     """
     if settings.DEBUG:
         return []
@@ -97,9 +118,11 @@ def check_turnstile_configured(app_configs: object, **kwargs: object) -> list[Er
     if not missing:
         return []
     return [
-        Error(
+        Warning(
             f"Turnstile is not configured: {', '.join(missing)} is empty. "
-            "Signup would refuse every submission.",
-            id="accounts.E001",
+            "Signup will refuse every submission until this is set.",
+            hint="Set TURNSTILE_SITE_KEY (tfvars) and TURNSTILE_SECRET_KEY "
+            "(Secret Manager), then terraform apply.",
+            id="accounts.W001",
         )
     ]

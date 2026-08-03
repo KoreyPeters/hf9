@@ -79,6 +79,16 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
+        # Same reasoning as spendium, and one specific case it exists for: a
+        # missing Turnstile secret makes signup refuse everybody, and refusing
+        # everybody is not something that raises. Without this the only trace
+        # would be a console line, and the symptom — nobody signing up — is
+        # indistinguishable from nobody trying.
+        "accounts": {
+            "handlers": ["console", "mail_admins"],
+            "level": "INFO",
+            "propagate": False,
+        },
     },
 }
 
