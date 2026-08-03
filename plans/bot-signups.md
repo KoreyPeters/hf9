@@ -160,11 +160,51 @@ that matters:
 
 **Immediate**
 
-- [ ] Check Mailgun logs for delivery of mail from `noreply@humanflourishing.org`
-      — delivered, rejected, or bounced. This determines how bad the above is and
-      whether real verification mail has ever worked. **Still worth doing**, now
-      as history rather than diagnosis: if it was all rejected, no stranger was
-      ever bothered, and real players have never been able to verify either.
+- [x] Check Mailgun logs for delivery of mail from `noreply@humanflourishing.org`.
+      **Answered 2026-08-03, and the answer changes the whole assessment — see
+      below.**
+
+### No mail has ever left this application
+
+Found while diagnosing a 500 on `/accounts/login/magic/request/`:
+
+```
+anymail.exceptions.AnymailRequestsAPIError: Mailgun API response 401
+(Unauthorized): 'Forbidden'
+```
+
+`MAILGUN_SENDER_DOMAIN` is `mail.humanflourishing.online`. Querying the Mailgun
+account with the deployed API key shows that domain **does not exist on it**.
+The account holds exactly two: `humanflourish.ing` (active, custom, all three
+sending DNS records valid) and a sandbox domain. Sending from a domain the
+account does not own is refused, and Mailgun reports it as a bare 401.
+
+The key itself is fine — 50 bytes, no BOM, no stray CRLF, and it authenticates
+against `api.mailgun.net` with HTTP 200. The first guess was an encoding
+problem, given this project's history; it was wrong.
+
+**Two consequences, and the first is good news.**
+
+Every bot signup 500'd — twenty of them between 20 and 26 July, visible in the
+logs. `send_verification_email` raised before it could send. **So no stranger
+was ever emailed.** The spam-relay harm that made this plan urgent did not
+happen. The accounts were still created, because `create_user` commits before
+the send is attempted and nothing wraps the two together.
+
+**The second is worse than the first.** Error alerts go to `ADMINS` through the
+same Mailgun backend. Django dutifully tried to mail a traceback for each of
+those twenty 500s, and each of those mails failed too. Nobody was told anything.
+The alerting channel and the thing it monitors share a single point of failure,
+which is why a fortnight of daily 500s on the signup page went unnoticed until
+somebody happened to look at the player list.
+
+**The fix is one secret**, and Korey's to apply: set `MAILGUN_SENDER_DOMAIN` to
+`humanflourish.ing`. That also finally aligns everything — `DEFAULT_FROM_EMAIL`
+is already `noreply@humanflourish.ing`, and that domain's SPF and DKIM records
+are valid, so mail will authenticate rather than land in spam.
+
+`cast=clean` added to both Mailgun settings in `prod.py` while here — not the
+cause this time, but the next secret written from PowerShell would have hit it.
 - [x] Confirm from the admin whether the twenty share `date_joined` bursts and
       whether any verified. **Superseded** — Korey deleted all players.
 - [x] Delete the confirmed bot accounts. Done by Korey. The scheduled reminders

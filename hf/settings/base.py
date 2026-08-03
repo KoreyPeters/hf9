@@ -197,6 +197,19 @@ AUTHENTICATION_BACKENDS = [
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 365
 SESSION_SAVE_EVERY_REQUEST = True
 
+# How many entries at the right-hand end of X-Forwarded-For our own
+# infrastructure appends. Everything to the left of them is client-supplied and
+# must not be trusted — see `accounts/ratelimit.py`.
+#
+# One, because requests reach Cloud Run's front end directly and it appends a
+# single address. **Change this to 2 if terraform/load_balancer.tf.disabled is
+# ever enabled**: a Google load balancer produces
+# `<existing>,<client-ip>,<load-balancer-ip>`, which puts the real client second
+# from the end. Left at 1, every request would then be bucketed under the load
+# balancer's own address — one shared rate limit for the whole site, which fails
+# quietly in the direction of locking real players out.
+TRUSTED_PROXY_HOPS = config("TRUSTED_PROXY_HOPS", default=1, cast=int)
+
 # Cloudflare Turnstile — the bot check on signup.
 #
 # Empty by default so development and the test suite need no keys and make no

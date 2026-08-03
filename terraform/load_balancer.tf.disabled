@@ -1,3 +1,16 @@
+# BEFORE ENABLING THIS FILE: set TRUSTED_PROXY_HOPS=2.
+#
+# Rate limiting buckets on an address taken from the right-hand end of
+# X-Forwarded-For, and how far in depends on what is in front of the app. Cloud
+# Run's own front end appends one entry; a Google load balancer produces
+# `<existing>,<client-ip>,<load-balancer-ip>`, which puts the real client second
+# from the end.
+#
+# Left at 1, enabling this file makes every request in the world bucket under
+# the load balancer's address — a single shared rate limit for the entire site,
+# locking real players out while looking like nothing changed. See
+# `accounts/ratelimit.py` and `hf/settings/base.py`.
+
 resource "google_compute_global_address" "default" {
   name    = "hf-lb-ip"
   project = var.project

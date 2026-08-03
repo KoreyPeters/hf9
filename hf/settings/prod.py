@@ -17,9 +17,14 @@ CACHES = {
 }
 
 EMAIL_BACKEND = "anymail.backends.mailgun.EmailBackend"
+# `cast=clean` on both, for the reason given at the top of base.py: secrets on
+# this project have arrived with a UTF-8 BOM or a trailing CRLF more than once,
+# and Mailgun answers a malformed key with a bare 401 that says nothing about
+# encoding. The sender domain must be a domain that exists on the Mailgun
+# account — not merely one we own — or every send fails the same way.
 ANYMAIL = {
-    "MAILGUN_API_KEY": config("MAILGUN_API_KEY"),
-    "MAILGUN_SENDER_DOMAIN": config("MAILGUN_SENDER_DOMAIN"),
+    "MAILGUN_API_KEY": config("MAILGUN_API_KEY", cast=clean),
+    "MAILGUN_SENDER_DOMAIN": config("MAILGUN_SENDER_DOMAIN", cast=clean),
 }
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="noreply@humanflourish.ing")
 

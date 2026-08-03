@@ -386,6 +386,35 @@ Found 2026-08-02 while investigating `plans/bot-signups.md`.
 
 ---
 
+## 13. Error alerts depend on the thing most likely to be broken
+
+**Where:** `hf/settings/prod.py` (`LOGGING`, `ADMINS`, `EMAIL_BACKEND`)
+
+Unhandled exceptions are reported by emailing `ADMINS` through Mailgun. So when
+Mailgun is what is broken, the report about it is sent through Mailgun.
+
+Not hypothetical. Between 20 and 26 July 2026 every signup returned a 500
+because `MAILGUN_SENDER_DOMAIN` named a domain absent from the Mailgun account.
+Django tried to mail a traceback for each one; each of those mails failed the
+same way. Twenty consecutive days of a broken signup page produced no alert, and
+it was found by looking at the player list for unrelated reasons.
+
+`monitoring.tf` alerts on 5xx rate through Cloud Monitoring, which does not
+depend on Mailgun — so there *was* a second channel. Worth confirming whether it
+fired and, if not, why: an alert policy that missed twenty 500s is a bigger
+problem than the mail backend.
+
+**Decide:** at minimum, confirm the Cloud Monitoring 5xx policy actually fires,
+since it is the only alerting path that survives an email outage. Beyond that,
+mail delivery failures deserve to be visible somewhere that is not email —
+`AdminEmailHandler` swallows its own exceptions by design, so a failing alert
+channel is silent by construction.
+
+Found 2026-08-03 while diagnosing a 500 on the magic-link endpoint. See
+`plans/bot-signups.md`.
+
+---
+
 ## Suggested order
 
 1. Item 10 — surface the running revision. Cheapest thing on the list, and the
@@ -408,6 +437,10 @@ Found 2026-08-02 while investigating `plans/bot-signups.md`.
    Centre annoying. Cheap whenever it is picked up.
 10. Item 12 — folded into item 1 whenever Redis lands. Worth knowing before then
     that the signup rate limit is weaker than it reads.
+
+Item 13 jumps the queue: confirming the Cloud Monitoring 5xx policy fires is
+worth doing before anything else on this list, because every other item here is
+found late if alerting does not work.
 
 Item 7 has left this list: it fired on 2026-07-31, was resolved at the database
 configuration rather than at the session store, and is kept above only for the

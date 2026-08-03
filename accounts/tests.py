@@ -170,6 +170,92 @@ def test_rate_limit_blocks_after_limit(rf):
 
 
 @pytest.mark.django_db
+def test_a_forged_forwarded_header_cannot_reset_the_bucket(rf):
+    """The bypass, reproduced.
+
+    Observed against production on 2026-08-02: six signup posts carrying
+    `X-Forwarded-For: 203.0.113.77` filled the bucket at five, and changing the
+    value to `203.0.113.88` was let straight through. Proxies append on the
+    right, so the leftmost entry is whatever the caller typed — one header per
+    request bought unlimited signups.
+
+    Here the attacker controls the first entry and Cloud Run appends the real
+    address. Varying their half must change nothing.
+    """
+    from django.core.cache import cache
+
+    from accounts.ratelimit import check_rate_limit
+
+    cache.clear()
+    for forged in ("203.0.113.77", "203.0.113.88", "198.51.100.5"):
+        request = rf.get("/", HTTP_X_FORWARDED_FOR=f"{forged}, 70.72.174.10")
+        assert check_rate_limit(request, "signup", limit=3) is True
+
+    request = rf.get("/", HTTP_X_FORWARDED_FOR="203.0.113.99, 70.72.174.10")
+    assert check_rate_limit(request, "signup", limit=3) is False, (
+        "a fourth forged value got a fresh bucket — the rate limit is keyed on "
+        "client-supplied data and can be defeated with one header"
+    )
+
+
+@pytest.mark.django_db
+def test_separate_real_clients_get_separate_buckets(rf):
+    """The other half. Keying on something the client cannot influence must not
+    collapse everybody into one shared limit."""
+    from django.core.cache import cache
+
+    from accounts.ratelimit import check_rate_limit
+
+    cache.clear()
+    for _ in range(3):
+        first = rf.get("/", HTTP_X_FORWARDED_FOR="203.0.113.1, 70.72.174.10")
+        assert check_rate_limit(first, "signup", limit=3) is True
+
+    second = rf.get("/", HTTP_X_FORWARDED_FOR="203.0.113.1, 198.51.100.200")
+    assert check_rate_limit(second, "signup", limit=3) is True
+
+
+@pytest.mark.django_db
+def test_the_hop_count_follows_the_infrastructure(rf, settings):
+    """`TRUSTED_PROXY_HOPS` exists because the right index is not a constant.
+
+    Cloud Run's front end appends one entry. A Google load balancer produces
+    `<existing>,<client-ip>,<load-balancer-ip>` and moves the real client to
+    second from the end — so enabling `load_balancer.tf.disabled` without
+    changing this would bucket the entire site under the load balancer.
+    """
+    from accounts.ratelimit import client_ip
+
+    header = "203.0.113.77, 70.72.174.10, 35.190.1.1"
+
+    settings.TRUSTED_PROXY_HOPS = 1
+    assert client_ip(rf.get("/", HTTP_X_FORWARDED_FOR=header)) == "35.190.1.1"
+
+    settings.TRUSTED_PROXY_HOPS = 2
+    assert client_ip(rf.get("/", HTTP_X_FORWARDED_FOR=header)) == "70.72.174.10"
+
+
+@pytest.mark.django_db
+def test_a_short_header_does_not_blow_up(rf, settings):
+    """Fewer entries than configured hops falls back to the leftmost rather than
+    raising. That value is spoofable, but such a request did not arrive through
+    the infrastructure this setting describes, and not rate limiting at all
+    would be worse."""
+    from accounts.ratelimit import client_ip
+
+    settings.TRUSTED_PROXY_HOPS = 3
+    assert client_ip(rf.get("/", HTTP_X_FORWARDED_FOR="203.0.113.5")) == "203.0.113.5"
+
+
+@pytest.mark.django_db
+def test_no_forwarded_header_falls_back_to_remote_addr(rf):
+    """Development, where nothing is in front of the app."""
+    from accounts.ratelimit import client_ip
+
+    assert client_ip(rf.get("/", REMOTE_ADDR="1.2.3.4")) == "1.2.3.4"
+
+
+@pytest.mark.django_db
 def test_resend_verification_rate_limited(unverified_player, client):
     from django.core.cache import cache
 
