@@ -125,9 +125,14 @@ def _expanded(request: HttpRequest) -> bool:
     question would collapse the list back to five and the player would have to
     expand it again after every single tap, which is worse than not offering
     expansion at all.
+
+    A query parameter rather than a signal. The prompt controls post with
+    `contentType: 'form'`, and Datastar sends no signals at all in that mode —
+    so a signal would simply stop arriving the moment those became forms. A
+    query string is part of the request whatever the body contains, which is why
+    every URL that re-renders this section carries `?expanded=`.
     """
-    signals = read_signals(request) or {}
-    return bool(signals.get("prompts_expanded"))
+    return request.GET.get("expanded") == "1"
 
 
 def _prompts_ctx(
@@ -167,13 +172,14 @@ def _prompts_response(
         _prompts_ctx(purchase, request, error),
         request=request,
     )
+    # Elements only. There used to be a `patch_signals` here resetting
+    # `free_text` and `chosen_product_id`, needed because a signal survives the
+    # element being replaced. Form fields do not: this patch swaps the whole
+    # section, and the inputs come back empty on their own.
     return DatastarResponse(
         [
             ServerSentEventGenerator.patch_elements(
                 html, selector="#disambiguation-section"
-            ),
-            ServerSentEventGenerator.patch_signals(
-                {"free_text": "", "chosen_product_id": ""}
             ),
         ]
     )
@@ -213,8 +219,11 @@ def confirm_line(request: HttpRequest, pk: int) -> DatastarResponse:
 @require_POST
 def choose_line_product(request: HttpRequest, pk: int) -> DatastarResponse:
     line = _get_line(request, pk)
-    signals = read_signals(request) or {}
-    raw_id = str(signals.get("chosen_product_id", "")).strip()
+    # Posted as form data, not signals. The prompt controls submit with
+    # `contentType: 'form'`, which sends the closest form's fields — scoping the
+    # value to one prompt instead of the whole section, which is what the old
+    # shared signal could not do.
+    raw_id = request.POST.get("chosen_product_id", "").strip()
 
     if not raw_id:
         return _prompts_response(
@@ -257,8 +266,9 @@ def accept_line_reading(request: HttpRequest, pk: int) -> DatastarResponse:
 @require_POST
 def submit_line_free_text(request: HttpRequest, pk: int) -> DatastarResponse:
     line = _get_line(request, pk)
-    signals = read_signals(request) or {}
-    text = str(signals.get("free_text", "")).strip()
+    # Form data, per the note in `choose_line_product`. Scoped to one prompt's
+    # form, so typing into the third box no longer fills the other eleven.
+    text = request.POST.get("free_text", "").strip()
 
     try:
         disambiguation.submit_free_text(line, text)

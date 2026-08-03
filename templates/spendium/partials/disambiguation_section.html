@@ -5,14 +5,20 @@ unresolved. Ignoring a prompt is free — every product stays rateable whether o
 not it has been disambiguated.
 {% endcomment %}
 {% comment %}
-  `prompts_expanded` is rendered from the server's view of the world rather than
-  left to whatever the client happened to hold. This element is replaced wholesale
-  after every answer, so a signal declared with a hardcoded false here would
-  collapse the list on each tap — the exact thing that would make expanding
-  useless.
+  No `data-signals` here any more, deliberately.
+
+  The controls below post with `contentType: 'form'`, which sends the closest
+  form's fields and — per Datastar's own documentation — sends no signals at
+  all. Signals would therefore be a second, silent source of truth that never
+  reaches the server.
+
+  Two things fall out of that. Expansion travels as `?expanded=` on every URL
+  that re-renders this section, because a query string is part of the request
+  whatever the body contains. And the boxes no longer need clearing after an
+  answer: a signal outlives an element patch, a form field does not, so
+  re-rendering empties them by itself.
 {% endcomment %}
-<div id="disambiguation-section"
-     data-signals='{"free_text": "", "chosen_product_id": "", "prompts_expanded": {{ expanded|yesno:"true,false" }}}'>
+<div id="disambiguation-section">
 
   {% if error %}
   <p style="color:#b91c1c;font-size:.8rem;margin:0 0 .75rem">{{ error }}</p>
@@ -56,7 +62,8 @@ not it has been disambiguated.
         Does that look right?
       </p>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-        <button data-on:click="@post('{% url 'spendium:confirm_line' prompt.line.pk %}')"
+        <button type="button"
+                data-on:click="@post('{% url 'spendium:confirm_line' prompt.line.pk %}?expanded={{ expanded|yesno:"1,0" }}')"
                 data-indicator:_saving
                 data-attr:disabled="$_saving"
                 style="padding:.4rem 1rem;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:.875rem">
@@ -79,7 +86,8 @@ not it has been disambiguated.
         couldn't match it to anything we know. Is that what it was?
       </p>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.6rem">
-        <button data-on:click="@post('{% url 'spendium:accept_line_reading' prompt.line.pk %}')"
+        <button type="button"
+                data-on:click="@post('{% url 'spendium:accept_line_reading' prompt.line.pk %}?expanded={{ expanded|yesno:"1,0" }}')"
                 data-indicator:_saving
                 data-attr:disabled="$_saving"
                 style="padding:.4rem 1rem;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:.875rem">
@@ -94,8 +102,21 @@ not it has been disambiguated.
       {% endif %}
 
       {% if prompt.candidates %}
-      <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.6rem">
-        <select data-bind:chosen_product_id
+      {% comment %}
+        One form per prompt, which is the point of the rewrite rather than a
+        side effect. These controls used to bind to signals declared once on the
+        container, so every prompt on the receipt shared one `chosen_product_id`
+        and one `free_text`: picking a product in any dropdown changed all of
+        them, and typing in any box filled all of them. Harmless to the data —
+        each button posted to its own line — and thoroughly confusing to look
+        at, especially now that "show the rest" can put a dozen on screen.
+
+        A form cannot express that bug. `contentType: 'form'` sends the closest
+        form's fields, and the closest form is this one prompt's.
+      {% endcomment %}
+      <form data-on:submit__prevent="@post('{% url 'spendium:choose_line_product' prompt.line.pk %}?expanded={{ expanded|yesno:"1,0" }}', {contentType: 'form'})"
+            style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.6rem">
+        <select name="chosen_product_id"
                 style="padding:.4rem .6rem;border:1px solid #d1d5db;border-radius:4px;font-size:.875rem;flex:1;min-width:0">
           <option value="">
             {% if prompt.has_match %}— or pick another —{% else %}— choose a product —{% endif %}
@@ -104,32 +125,45 @@ not it has been disambiguated.
           <option value="{{ candidate.product.pk }}">{{ candidate.product.canonical_name }}</option>
           {% endfor %}
         </select>
-        <button data-on:click="@post('{% url 'spendium:choose_line_product' prompt.line.pk %}')"
+        <button type="submit"
                 data-indicator:_saving
                 data-attr:disabled="$_saving"
                 style="padding:.4rem .9rem;border:1px solid #e5e7eb;border-radius:4px;background:#fff;cursor:pointer;font-size:.875rem;color:#374151">
           Use this
         </button>
-      </div>
+      </form>
       {% endif %}
 
       {% comment %}
         Free text. The player held the product, so their own words are the
         strongest signal available — but they still run through the matching
         cascade rather than writing to the catalogue directly.
+
+        A real form, so Enter submits. That is the browser's own implicit
+        submission rather than anything written here, which is why the button
+        must be `type="submit"` and why this cannot be a bare div.
+
+        No `method` and no `action` on purpose. `__prevent` stops the native
+        submit once Datastar has hydrated; before that — a slow first load —
+        Enter falls through to the browser. With no method that is a GET to the
+        current URL, so the page reloads and the typed text is lost. Adding
+        `method="post"` would instead POST to a Datastar endpoint, which answers
+        in text/event-stream, and the player would be looking at raw SSE frames.
       {% endcomment %}
-      <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
+      <form data-on:submit__prevent="@post('{% url 'spendium:submit_line_free_text' prompt.line.pk %}?expanded={{ expanded|yesno:"1,0" }}', {contentType: 'form'})"
+            style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
         <input type="text"
-               data-bind:free_text
+               name="free_text"
+               required
                placeholder="Or describe it yourself"
                style="padding:.4rem .6rem;border:1px solid #d1d5db;border-radius:4px;font-size:.875rem;flex:1;min-width:0">
-        <button data-on:click="@post('{% url 'spendium:submit_line_free_text' prompt.line.pk %}')"
+        <button type="submit"
                 data-indicator:_saving
                 data-attr:disabled="$_saving"
                 style="padding:.4rem .9rem;border:1px solid #e5e7eb;border-radius:4px;background:#fff;cursor:pointer;font-size:.875rem;color:#374151">
           Save
         </button>
-      </div>
+      </form>
 
     </div>
     {% endfor %}
@@ -146,14 +180,16 @@ not it has been disambiguated.
   {% endcomment %}
   {% if hidden_count %}
   <p style="margin:1rem 0 0">
-    <button data-on:click="$prompts_expanded = true; @get('{% url 'spendium:disambiguation_section' purchase.pk %}')"
+    <button type="button"
+            data-on:click="@get('{% url 'spendium:disambiguation_section' purchase.pk %}?expanded=1')"
             style="font-size:.8rem;color:#1d4ed8;background:none;border:none;padding:0;cursor:pointer">
       Show the other {{ hidden_count }}
     </button>
   </p>
   {% elif expanded %}
   <p style="margin:1rem 0 0">
-    <button data-on:click="$prompts_expanded = false; @get('{% url 'spendium:disambiguation_section' purchase.pk %}')"
+    <button type="button"
+            data-on:click="@get('{% url 'spendium:disambiguation_section' purchase.pk %}?expanded=0')"
             style="font-size:.8rem;color:#6b7280;background:none;border:none;padding:0;cursor:pointer">
       Show fewer
     </button>

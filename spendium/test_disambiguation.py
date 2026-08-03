@@ -1,6 +1,5 @@
 """Tier 3: the player prompt — budgeting, ranking, and resolution."""
 
-import json
 from datetime import timedelta
 from decimal import Decimal
 
@@ -453,29 +452,13 @@ def test_confirm_view_resolves_the_line(client, shopper: Player, store: Store) -
     assert line.disambiguation_state == PurchaseLineItem.STATE_RESOLVED
 
 
-def _datastar_post(client, url: str, signals: dict) -> bytes:
-    """Signals only reach the view when the Datastar-Request header is present.
+def _stream(resp) -> bytes:
+    """Collect an SSE response body.
 
-    read_signals() returns None without it, so omitting the header produces a
-    view that silently sees no input — which looks like a bug in the view.
+    Used by the prompt controls, which post ordinary form data rather than
+    signals — `contentType: 'form'` — so there is no Datastar header or JSON
+    envelope to construct. Expansion rides on the query string instead.
     """
-    resp = client.post(
-        url,
-        data=json.dumps(signals),
-        content_type="application/json",
-        headers={"Datastar-Request": "true"},
-    )
-    assert resp.status_code == 200
-    return b"".join(resp.streaming_content)
-
-
-def _datastar_get(client, url: str, signals: dict) -> bytes:
-    """The GET half of the same plumbing — signals arrive as a query param."""
-    resp = client.get(
-        url,
-        {"datastar": json.dumps(signals)},
-        headers={"Datastar-Request": "true"},
-    )
     assert resp.status_code == 200
     return b"".join(resp.streaming_content)
 
@@ -509,8 +492,8 @@ def test_expanding_shows_everything_pending(
     client.force_login(shopper)
     url = reverse("spendium:disambiguation_section", args=[purchase.pk])
 
-    collapsed = _datastar_get(client, url, {"prompts_expanded": False})
-    expanded = _datastar_get(client, url, {"prompts_expanded": True})
+    collapsed = _stream(client.get(url, {"expanded": "0"}))
+    expanded = _stream(client.get(url, {"expanded": "1"}))
 
     assert collapsed.count(b"ITEM ") == 5
     assert expanded.count(b"ITEM ") == 12
@@ -528,6 +511,10 @@ def test_answering_while_expanded_stays_expanded(
     survive that, the list would snap back to five on each tap and the player
     would have to expand again between every question — worse than leaving them
     stuck behind the cap.
+
+    Carried on the query string rather than in a signal, because the prompt
+    controls post with `contentType: 'form'` and Datastar sends no signals in
+    that mode. A signal would simply stop arriving.
     """
     purchase = make_purchase(shopper, store)
     product = Product.objects.create(canonical_name="Heinz Ketchup")
@@ -536,16 +523,13 @@ def test_answering_while_expanded_stays_expanded(
         make_line(purchase, f"ITEM {i}")
 
     client.force_login(shopper)
-    body = _datastar_post(
-        client,
-        reverse("spendium:confirm_line", args=[line.pk]),
-        {"prompts_expanded": True},
-    )
+    url = reverse("spendium:confirm_line", args=[line.pk])
+    body = _stream(client.post(f"{url}?expanded=1"))
 
     assert body.count(b"ITEM ") == 11, "the list collapsed back to the budget"
-    assert b'"prompts_expanded": true' in body, (
-        "the re-rendered section declares expansion as false, so the next answer "
-        "would collapse it"
+    assert b"expanded=1" in body, (
+        "the re-rendered controls carry expanded=0, so the next answer would "
+        "collapse the list"
     )
 
 
@@ -587,31 +571,37 @@ def test_no_toggle_when_prompting_is_disabled(
 
 
 @pytest.mark.django_db
-def test_choose_view_reads_the_signal(client, shopper: Player, store: Store) -> None:
-    """Exercises the Datastar signal plumbing, not just the service call."""
+def test_choose_view_reads_the_posted_form(
+    client, shopper: Player, store: Store
+) -> None:
+    """Exercises the form plumbing, not just the service call."""
     purchase = make_purchase(shopper, store)
     guessed = Product.objects.create(canonical_name="Heinz Ketchup")
     actual = Product.objects.create(canonical_name="Heinz Mustard")
     line = make_line(purchase, "HEINZ 750", product=guessed, confidence="0.720")
 
     client.force_login(shopper)
-    _datastar_post(
-        client,
-        reverse("spendium:choose_line_product", args=[line.pk]),
-        {"chosen_product_id": str(actual.pk)},
+    _stream(
+        client.post(
+            reverse("spendium:choose_line_product", args=[line.pk]),
+            {"chosen_product_id": str(actual.pk)},
+        )
     )
     line.refresh_from_db()
     assert line.product == actual
 
 
 @pytest.mark.django_db
-def test_free_text_view_reads_the_signal(client, shopper: Player, store: Store) -> None:
+def test_free_text_view_reads_the_posted_form(
+    client, shopper: Player, store: Store
+) -> None:
     line = make_line(make_purchase(shopper, store), "MYSTERY ITEM")
     client.force_login(shopper)
-    _datastar_post(
-        client,
-        reverse("spendium:submit_line_free_text", args=[line.pk]),
-        {"free_text": "Bulk Red Lentils"},
+    _stream(
+        client.post(
+            reverse("spendium:submit_line_free_text", args=[line.pk]),
+            {"free_text": "Bulk Red Lentils"},
+        )
     )
     line.refresh_from_db()
     assert line.product is not None
@@ -625,10 +615,11 @@ def test_choose_view_reports_a_missing_selection(
     product = Product.objects.create(canonical_name="Heinz Ketchup")
     line = make_line(make_purchase(shopper, store), "HEINZ 750", product=product)
     client.force_login(shopper)
-    body = _datastar_post(
-        client,
-        reverse("spendium:choose_line_product", args=[line.pk]),
-        {"chosen_product_id": ""},
+    body = _stream(
+        client.post(
+            reverse("spendium:choose_line_product", args=[line.pk]),
+            {"chosen_product_id": ""},
+        )
     )
     assert b"No product was selected" in body
     line.refresh_from_db()
@@ -856,10 +847,11 @@ def test_accept_view_ignores_posted_text(client, shopper: Player, store: Store) 
     line = make_line(make_purchase(shopper, store), "BULK RED LENTILS")
 
     client.force_login(shopper)
-    _datastar_post(
-        client,
-        reverse("spendium:accept_line_reading", args=[line.pk]),
-        {"free_text": "Something Else Entirely"},
+    _stream(
+        client.post(
+            reverse("spendium:accept_line_reading", args=[line.pk]),
+            {"free_text": "Something Else Entirely"},
+        )
     )
 
     line.refresh_from_db()
