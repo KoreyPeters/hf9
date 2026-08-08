@@ -26,7 +26,7 @@ from evidence.service import (
 )
 from surveys.models import Criterion, SurveyResponse
 from surveys.ratings import compute_declaration_points
-from surveys.service import CoolDownError, check_cooldown
+from surveys.service import CoolDownError, check_cooldown, criteria_for
 
 from . import service
 from .models import (
@@ -279,10 +279,17 @@ def unfollow_jurisdiction(request: HttpRequest) -> HttpResponse:
 
 
 def _survey_ctx(request: HttpRequest, candidate: Candidate) -> dict[str, object]:
-    criteria_qs = list(
-        Criterion.objects.filter(is_active=True, category__game="polium")
-        .select_related("category")
-        .order_by("category__name", "question")
+    # Which questions apply is now `surveys.service.criteria_for`, shared with
+    # Spendium. For Polium the answer is unchanged: its categories have no
+    # subject type, and null means "everything in this game" — which is exactly
+    # what this used to do by filtering on `category__game` alone.
+    #
+    # The sort stays here because it is presentation. `criteria_for` orders by
+    # primary key for stability; Polium groups by category name, and `groupby`
+    # needs its input sorted the same way it groups.
+    criteria_qs = sorted(
+        criteria_for(candidate, "polium"),
+        key=lambda c: (c.category.name, c.question),
     )
     criteria_by_category: list[tuple[object, list[Criterion]]] = [
         (cat, list(crits))

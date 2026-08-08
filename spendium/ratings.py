@@ -27,14 +27,21 @@ from django.utils import timezone
 from surveys.models import CriterionAnswer, SurveyConfig, SurveyResponse
 
 from . import catalogue
-from .models import AnonymisedLineItem, Product, PurchaseLineItem
+from .models import AnonymisedLineItem, Product, Purchase, PurchaseLineItem, Store
 
 RATING_WINDOW_DAYS = 365
 
 
 @dataclass(frozen=True)
-class ProductRating:
-    """A product's rating and everything needed to judge how much it means."""
+class SubjectRating:
+    """A rating and everything needed to judge how much it means.
+
+    Shared between products and stores. `purchase_count` and `publishable` are
+    product concerns — a sparse published aggregate could expose an individual
+    basket — but they stay on the shared shape so a store gate can be added
+    later without changing every call site. For stores `publishable` simply
+    equals `displayable`; see `compute_store`.
+    """
 
     score: Decimal | None
     response_count: int
@@ -48,6 +55,42 @@ class ProductRating:
         if self.score is None:
             return None
         return int(round(float(self.score) * 100))
+
+
+# The old name, kept because it reads better at product call sites and because
+# renaming it everywhere would be churn with no reader benefit.
+ProductRating = SubjectRating
+
+
+def _weighted_score(responses: list[tuple[int, bool]]) -> tuple[Decimal | None, int]:
+    """The verified/unverified weighted mean, shared by products and stores.
+
+    An unverified response is somebody with an opinion rather than a receipt,
+    and that discount means the same thing whichever subject is being rated —
+    so it lives in one place rather than being reimplemented per subject.
+
+    Returns the score and the number of verified responses behind it.
+    """
+    verified_ids = {pk for pk, verified in responses if verified}
+    unverified_weight = Decimal(str(settings.SPENDIUM["UNVERIFIED_RATING_WEIGHT"]))
+
+    answers = CriterionAnswer.objects.filter(
+        survey_response_id__in=[pk for pk, _ in responses],
+        criterion__is_active=True,
+    ).select_related("criterion")
+
+    total_weight = Decimal("0")
+    weighted_sum = Decimal("0")
+    for answer in answers:
+        weight = Decimal(str(answer.criterion.weight))
+        if answer.survey_response_id not in verified_ids:
+            weight *= unverified_weight
+        total_weight += weight
+        if answer.answer:
+            weighted_sum += weight
+
+    score = (weighted_sum / total_weight) if total_weight else None
+    return score, len(verified_ids)
 
 
 def _responses(product: Product):
@@ -110,13 +153,16 @@ def compute(product: Product) -> ProductRating:
     something but not the same, and is what a manufacturer disputing a rating
     would attack first.
 
-    Unverified responses can never clear the display threshold alone: the
-    threshold counts verified responses only, so a product cannot be given a
-    public rating by people who never bought it.
+    The display threshold counts **all** responses, not just verified ones.
+    It used to count verified only, which was coherent while a purchase was
+    required to rate at all — but anyone signed in may now rate anything, and
+    counting verified alone would mean a product twenty people had rated showed
+    nothing until somebody uploaded a receipt. The score is already weighted, so
+    an unverified response appears in the number having counted for less.
     """
     responses = list(_responses(product).values_list("pk", "is_verified"))
     if not responses:
-        return ProductRating(
+        return SubjectRating(
             score=None,
             response_count=0,
             verified_count=0,
@@ -125,33 +171,14 @@ def compute(product: Product) -> ProductRating:
             publishable=False,
         )
 
-    verified_ids = {pk for pk, verified in responses if verified}
-    unverified_weight = Decimal(str(settings.SPENDIUM["UNVERIFIED_RATING_WEIGHT"]))
-
-    answers = CriterionAnswer.objects.filter(
-        survey_response_id__in=[pk for pk, _ in responses],
-        criterion__is_active=True,
-    ).select_related("criterion")
-
-    total_weight = Decimal("0")
-    weighted_sum = Decimal("0")
-    for answer in answers:
-        weight = Decimal(str(answer.criterion.weight))
-        if answer.survey_response_id not in verified_ids:
-            weight *= unverified_weight
-        total_weight += weight
-        if answer.answer:
-            weighted_sum += weight
-
-    score = (weighted_sum / total_weight) if total_weight else None
-    verified_count = len(verified_ids)
+    score, verified_count = _weighted_score(responses)
     purchases = purchase_count(product)
     # Looked up once. Called twice it doubled the config query, which is
     # invisible for one product and linear for anything looping over many.
     threshold = _min_responses()
-    enough_responses = score is not None and verified_count >= threshold
+    enough_responses = score is not None and len(responses) >= threshold
 
-    return ProductRating(
+    return SubjectRating(
         score=score,
         response_count=len(responses),
         verified_count=verified_count,
@@ -172,6 +199,90 @@ def player_has_bought(player: object, product: Product) -> bool:
         purchase__player=player,
         product_id__in=catalogue.merge_group_ids(product),
     ).exists()
+
+
+# ── Stores ────────────────────────────────────────────────────────────────────
+
+
+def _store_responses(store: Store):
+    """Every response for this store inside the rating window.
+
+    No merge group, unlike products. `Store` has no `merged_into` and stores are
+    deduplicated only by case-insensitive printed name, so "LOBLAWS" and
+    "LOBLAWS #1234" accumulate separate ratings and pay different rates for the
+    same chain. That is a known limit rather than an oversight — item 8 in
+    plans/operational-debt.md — and rating stores is what makes it cost real
+    points rather than merely looking untidy.
+    """
+    cutoff = timezone.now() - timedelta(days=RATING_WINDOW_DAYS)
+    return SurveyResponse.objects.filter(
+        content_type=ContentType.objects.get_for_model(Store),
+        object_id=store.pk,
+        submitted_at__gte=cutoff,
+    )
+
+
+def compute_store(store: Store) -> SubjectRating:
+    """A retailer's rating.
+
+    **No publish gate.** For products the purchase-count threshold stops a
+    sparse aggregate exposing an individual basket; "people who shopped at
+    Loblaws think X" carries no such risk, and a k-anonymity gate here would
+    contradict the decision to show a rating from the first response. So
+    `publishable` equals `displayable`. The field stays on the shared shape so
+    products are unaffected and a store gate can be added later if this turns
+    out to be wrong.
+
+    `purchase_count` is reported as zero rather than counted: nothing consumes
+    it for stores, and counting every line item at a chain would be an expensive
+    answer to a question nobody asks.
+    """
+    responses = list(_store_responses(store).values_list("pk", "is_verified"))
+    if not responses:
+        return SubjectRating(
+            score=None,
+            response_count=0,
+            verified_count=0,
+            purchase_count=0,
+            displayable=False,
+            publishable=False,
+        )
+
+    score, verified_count = _weighted_score(responses)
+    enough_responses = score is not None and len(responses) >= _min_responses()
+
+    return SubjectRating(
+        score=score,
+        response_count=len(responses),
+        verified_count=verified_count,
+        purchase_count=0,
+        displayable=enough_responses,
+        publishable=enough_responses,
+    )
+
+
+def store_points_per_dollar(store: Store) -> Decimal:
+    """What shopping here is worth, per dollar spent.
+
+    The figure the design wants shown prominently: "29 points per dollar versus
+    4" is the comparison that moves behaviour, where a percentage is a
+    judgement. Uncapped by design — see `surveys.ratings.compute_declaration_points`.
+    """
+    from surveys.ratings import compute_declaration_points
+
+    return compute_declaration_points(store)
+
+
+def player_has_shopped_at(player: object, store: Store) -> bool:
+    """Whether this response is anchored to a receipt.
+
+    Not an eligibility check — anyone signed in may rate any store. This decides
+    `is_verified`, which is what the weighting acts on.
+
+    Only the player-linked layer counts, for the same reason as products: once a
+    purchase is anonymised there is deliberately no way to tell whose it was.
+    """
+    return Purchase.objects.filter(player=player, store=store).exists()
 
 
 def manufacturer_rating(manufacturer: object) -> ProductRating:
@@ -253,6 +364,35 @@ def snapshot_all() -> int:
         written += 1
 
     prune_snapshots()
+    return written
+
+
+def snapshot_all_stores() -> int:
+    """Record today's rating and payout rate for every store with one.
+
+    Skips stores with no responses rather than writing zeroes, so a chain nobody
+    has rated leaves no trend line at all — which is honest, where a flat line at
+    zero would read as "rated badly" rather than "not rated".
+    """
+    from .models import StoreRatingSnapshot
+
+    today = timezone.now().date()
+    written = 0
+    for store in Store.objects.iterator():
+        rating = compute_store(store)
+        if rating.score is None:
+            continue
+        StoreRatingSnapshot.objects.update_or_create(
+            store=store,
+            taken_on=today,
+            defaults={
+                "score": rating.score,
+                "response_count": rating.response_count,
+                "verified_count": rating.verified_count,
+                "points_per_dollar": store_points_per_dollar(store),
+            },
+        )
+        written += 1
     return written
 
 

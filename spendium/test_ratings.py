@@ -17,6 +17,7 @@ from spendium import catalogue, ratings
 from spendium.models import (
     AnonymisedLineItem,
     AnonymisedPurchase,
+    MatchConfig,
     Product,
     ProductCategory,
     ProductRatingSnapshot,
@@ -137,10 +138,19 @@ def test_unverified_responses_count_for_less(product: Product, criteria) -> None
 
 
 @pytest.mark.django_db
-def test_unverified_responses_never_clear_the_display_threshold(
+def test_unverified_responses_do_clear_the_display_threshold(
     product: Product, criteria
 ) -> None:
-    """A product must not get a public rating from people who never bought it."""
+    """This asserted the opposite until 2026-08-03, and the old rule was right
+    at the time: only purchasers could rate, so counting verified responses was
+    the same as counting responses.
+
+    Anyone signed in may now rate anything. Under the old rule a product twenty
+    people had rated would show nothing until somebody uploaded a receipt, which
+    defeats bootstrapping entirely. The score is weighted, so those responses
+    appear in the number having counted for less — visible and discounted, not
+    invisible.
+    """
     config = SurveyConfig.get()
     for i in range(config.min_survey_threshold + 3):
         rate(make_player(f"p{i}"), product, criteria, [True, True], verified=False)
@@ -148,7 +158,36 @@ def test_unverified_responses_never_clear_the_display_threshold(
     result = ratings.compute(product)
     assert result.response_count > config.min_survey_threshold
     assert result.verified_count == 0
-    assert result.displayable is False
+    assert result.displayable is True
+
+
+@pytest.mark.django_db
+def test_showing_a_rating_and_paying_for_it_are_separate_gates(
+    product: Product, criteria, store: Store
+) -> None:
+    """The answer to "show early without opening ourselves to fraud".
+
+    Two gates already existed and only one of them is worth defrauding.
+    `min_rating_responses` decides whether a number is *shown*;
+    `min_survey_threshold` (k) decides whether a criterion *pays*, and excludes
+    a criterion with too few responses entirely rather than scoring it zero.
+
+    So one response makes a rating visible and worth exactly nothing.
+    """
+    from surveys.ratings import compute_declaration_points
+
+    config = MatchConfig.get()
+    config.min_rating_responses = 1
+    config.save()
+
+    rate(make_player("first"), product, criteria, [True, True], verified=True)
+
+    result = ratings.compute(product)
+    assert result.response_count == 1
+    assert result.displayable is True, "a single rating should be visible"
+    assert compute_declaration_points(product) == Decimal("0"), (
+        "a single rating must not pay: the k gate is the anti-fraud one"
+    )
 
 
 @pytest.mark.django_db
@@ -259,31 +298,63 @@ def test_buying_a_merged_away_record_still_counts(
 
 
 @pytest.mark.django_db
-def test_responses_record_the_criteria_version(
+def test_answers_record_the_criteria_version(
     product: Product, criteria, category: Category
 ) -> None:
-    """A rating means "answers to these questions"; changing them changes it."""
-    category.bump_criteria_version()
-    submit_survey(
-        make_player("a"),
-        product,
-        {criteria[0].pk: True},
-        criteria_version=category.criteria_version,
-    )
-    from surveys.models import SurveyResponse
+    """A rating means "answers to these questions"; changing them changes it.
 
-    assert SurveyResponse.objects.get().criteria_version == 2
+    Recorded per answer rather than per response, and read from the criterion's
+    own category rather than passed in by the caller. A subject can be asked
+    several categories' questions and each keeps its own counter, so one number
+    supplied at the call site could only ever have described one of them.
+
+    Nothing aggregates on this yet — item 9 in plans/operational-debt.md — but
+    what gets written is now unambiguous.
+    """
+    category.bump_criteria_version()
+    submit_survey(make_player("a"), product, {criteria[0].pk: True})
+
+    from surveys.models import CriterionAnswer
+
+    assert CriterionAnswer.objects.get().criteria_version == 2
+
+
+@pytest.mark.django_db
+def test_each_answer_takes_the_version_of_its_own_category(product: Product) -> None:
+    """The case a single field on the response could not express."""
+    from django.contrib.contenttypes.models import ContentType
+
+    from surveys.models import Category, Criterion, CriterionAnswer
+
+    ct = ContentType.objects.get_for_model(Product)
+    first = Category.objects.create(
+        name="A", description="", game="spendium", subject_type=ct
+    )
+    second = Category.objects.create(
+        name="B", description="", game="spendium", subject_type=ct
+    )
+    second.bump_criteria_version()
+    second.bump_criteria_version()
+
+    a = Criterion.objects.create(category=first, question="A?", weight=1)
+    b = Criterion.objects.create(category=second, question="B?", weight=1)
+
+    submit_survey(make_player("a"), product, {a.pk: True, b.pk: False})
+
+    versions = dict(
+        CriterionAnswer.objects.values_list("criterion__question", "criteria_version")
+    )
+    assert versions == {"A?": 1, "B?": 3}
 
 
 @pytest.mark.django_db
 def test_polium_callers_are_unaffected(product: Product, criteria) -> None:
-    """The new arguments default to what Polium has always behaved as though it used."""
+    """`is_verified` still defaults to what Polium has always behaved as though
+    it used, so its call sites need no change."""
     submit_survey(make_player("a"), product, {criteria[0].pk: True})
     from surveys.models import SurveyResponse
 
-    response = SurveyResponse.objects.get()
-    assert response.is_verified is False
-    assert response.criteria_version == 1
+    assert SurveyResponse.objects.get().is_verified is False
 
 
 # ── Trend ─────────────────────────────────────────────────────────────────────
@@ -388,11 +459,24 @@ def test_a_buyer_sees_the_survey(
 
 
 @pytest.mark.django_db
-def test_a_non_buyer_is_told_why_not(client, product: Product, criteria) -> None:
+def test_a_non_buyer_may_rate_and_is_told_it_counts_for_less(
+    client, product: Product, criteria
+) -> None:
+    """`design.md:341` says anyone may submit a response, players and
+    non-players alike. Products used to gate the form on having bought the
+    thing, which made a new product unrateable by everyone except the few who
+    had already bought it — the opposite of bootstrapping.
+
+    A purchase now decides `is_verified`, which is what the weighting acts on,
+    and the page says so rather than discounting the answer silently.
+    """
     product.refresh_from_db()
     client.force_login(make_player("nobody"))
     response = client.get(reverse("spendium:product_detail", args=[product.sqid]))
-    assert b"once you have bought it" in response.content
+
+    assert b"Rate this product" in response.content
+    assert b"count for less" in response.content
+    assert b"once you have bought it" not in response.content
 
 
 @pytest.mark.django_db

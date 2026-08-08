@@ -1,6 +1,32 @@
+# Litestream 0.3.13 — see the pinned version in the Dockerfile. The 0.5 series
+# uses a different config schema (LTX files, compaction levels, a `snapshot`
+# block); none of those keys are valid here and using them would fail at
+# startup. Key names below were checked against the ReplicaConfig struct in the
+# v0.3.13 source rather than the current docs, which describe 0.5.
 dbs:
   - path: /data/db.sqlite3
     replicas:
       - type: gcs
         bucket: ${LITESTREAM_GCS_BUCKET}
         path: hf/db
+
+        # How far back the replica can restore to. The default is 24h; a week
+        # costs almost nothing here — a snapshot is about 95KB, so seven days of
+        # hourly container restarts is roughly 16MiB — and 24h is thin when the
+        # thing that would tell you something went wrong is itself unproven
+        # (item 13 in plans/operational-debt.md). Recovery window, not storage
+        # cost, is what should set this.
+        retention: 168h
+
+        # This is the setting that actually mattered.
+        #
+        # Retention was never disabled — it defaults to 24h — but the *check*
+        # defaults to running once an hour, and since `cpu_idle = true` the
+        # container scales to zero and restarts roughly hourly. The cleanup pass
+        # almost never survived long enough to run, so generations accumulated:
+        # thirty-odd of them going back to May, one per container start, each
+        # holding a full snapshot.
+        #
+        # Five minutes is comfortably inside even a short-lived instance, so
+        # enforcement actually happens. It costs a handful of LIST calls.
+        retention-check-interval: 5m

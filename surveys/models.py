@@ -9,6 +9,16 @@ class Category(models.Model):
     name = models.CharField(max_length=200)
     description = models.TextField()
     game = models.CharField(max_length=50)
+    subject_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="survey_categories",
+        help_text="What these questions are about — Candidate, Product, Store. "
+        "Null means every subject in the game, which is what Polium relied on "
+        "when Candidate was its only rateable thing.",
+    )
     criteria_version = models.PositiveIntegerField(
         default=1,
         help_text="Bumped whenever the question set changes. Responses record "
@@ -84,10 +94,12 @@ class SurveyResponse(models.Model):
         "product. Recorded as a flag rather than a link so the anchor survives "
         "the purchase being anonymised.",
     )
-    criteria_version = models.PositiveIntegerField(
-        default=1,
-        help_text="The Category.criteria_version in force when this was answered.",
-    )
+    # `criteria_version` used to live here. It moved to `CriterionAnswer`
+    # (2026-08-03): a response can span several categories once a subject is
+    # asked more than one question set, and each category keeps its own counter,
+    # so one integer on the response could not say which version anything was
+    # answered under. Nothing read it — see item 9 in plans/operational-debt.md
+    # for the separate question of making the aggregation honour it at all.
 
     class Meta:
         indexes = [models.Index(fields=["content_type", "object_id"])]
@@ -101,6 +113,13 @@ class CriterionAnswer(models.Model):
         Criterion, on_delete=models.PROTECT, related_name="answers"
     )
     answer = models.BooleanField()
+    criteria_version = models.PositiveIntegerField(
+        default=1,
+        help_text="The version of this criterion's category when it was "
+        "answered. Per answer rather than per response, because a subject may "
+        "be asked questions from several categories and each keeps its own "
+        "version — one integer on the response cannot describe two of them.",
+    )
 
 
 class SurveyConfig(models.Model):

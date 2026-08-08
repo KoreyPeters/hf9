@@ -84,6 +84,29 @@
   {% endif %}
 
   {% comment %}
+    4. Unrated retailers. Last of the four because it is the newest and the
+       least urgent — but it closes the loop the design asks for: a purchase
+       prompts a survey, and the survey changes what the next shop there pays.
+  {% endcomment %}
+  {% if centre.unrated_stores %}
+  <section style="margin-bottom:2.5rem">
+    <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.1rem;margin:0 0 .25rem">
+      Shops you could rate
+    </h2>
+    <p style="font-size:.8rem;color:#6b7280;margin:0 0 1rem">
+      Where you've shopped and not yet rated. A retailer's rating decides the
+      points per dollar you earn there next time.
+    </p>
+    {% for store in centre.unrated_stores %}
+    <div style="border-top:1px solid #f3f4f6;padding:.65rem 0">
+      <a href="{% url 'spendium:store_detail' store.sqid %}"
+         style="color:#111;text-decoration:none">{{ store.name }}</a>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  {% comment %}
     Email preference. Opt-out is a published expectation, so it lives here
     rather than at the bottom of an email nobody opens.
   {% endcomment %}

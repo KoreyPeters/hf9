@@ -440,6 +440,41 @@ class ProductRatingSnapshot(models.Model):
         return f"{self.product.canonical_name} @ {self.taken_on}: {self.score}"
 
 
+class StoreRatingSnapshot(models.Model):
+    """A store's rating on one day.
+
+    Same reasoning as `ProductRatingSnapshot`: the rating is computed over a
+    rolling twelve-month window, so a past value cannot be reconstructed once
+    the responses behind it age out.
+
+    Carries `points_per_dollar` as well, which the product snapshot does not.
+    For a store that is the number players actually choose on — "29 points per
+    dollar versus 4" — so its history is worth at least as much as the
+    percentage's, and it moves independently: a criterion crossing the k
+    threshold changes the payout without moving the score at all.
+    """
+
+    store = models.ForeignKey(
+        Store, on_delete=models.CASCADE, related_name="rating_snapshots"
+    )
+    taken_on = models.DateField(db_index=True)
+    score = models.DecimalField(max_digits=4, decimal_places=3)
+    response_count = models.PositiveIntegerField(default=0)
+    verified_count = models.PositiveIntegerField(default=0)
+    points_per_dollar = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["store", "taken_on"], name="one_snapshot_per_store_per_day"
+            )
+        ]
+        ordering = ["taken_on"]
+
+    def __str__(self) -> str:
+        return f"{self.store.name} @ {self.taken_on}: {self.score}"
+
+
 class EmergencyStop(models.Model):
     """The one control that stops Spendium spending money.
 

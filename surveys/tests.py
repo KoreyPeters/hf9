@@ -59,6 +59,82 @@ def make_response(player: Player, subject: Player) -> SurveyResponse:
     )
 
 
+# ── Which questions apply to which subject ────────────────────────────────────
+#
+# A category used to be picked with `.first()` ordered by primary key, which is
+# correct only while a game has exactly one rateable thing. Spendium is getting
+# a second, and a store category created before the product one would have
+# served product questions on store pages with nothing anywhere reporting it.
+
+
+@pytest.mark.django_db
+def test_a_category_scoped_to_one_subject_is_not_offered_for_another() -> None:
+    """The guard on the whole scoping change.
+
+    Ordered so the *store* category has the lower primary key, because that is
+    the arrangement the old `.first()` selector got wrong. With it, this fails.
+    """
+    from spendium.models import Product, Store
+    from surveys.service import criteria_for
+
+    store_cat = Category.objects.create(
+        name="Store ethics",
+        description="",
+        game="spendium",
+        subject_type=ContentType.objects.get_for_model(Store),
+    )
+    product_cat = Category.objects.create(
+        name="Product ethics",
+        description="",
+        game="spendium",
+        subject_type=ContentType.objects.get_for_model(Product),
+    )
+    Criterion.objects.create(category=store_cat, question="Store question?", weight=1)
+    Criterion.objects.create(
+        category=product_cat, question="Product question?", weight=1
+    )
+    assert store_cat.pk < product_cat.pk, "fixture no longer reproduces the hazard"
+
+    product = Product.objects.create(canonical_name="Heinz Ketchup")
+    questions = [c.question for c in criteria_for(product, "spendium")]
+
+    assert questions == ["Product question?"]
+
+
+@pytest.mark.django_db
+def test_an_unscoped_category_applies_to_everything_in_its_game() -> None:
+    """Null keeps Polium's old behaviour, and makes it a statement rather than
+    an accident of Candidate having been its only rateable subject."""
+    from surveys.service import criteria_for
+
+    general = Category.objects.create(
+        name="General", description="", game="polium", subject_type=None
+    )
+    Criterion.objects.create(category=general, question="Anything?", weight=1)
+
+    from polium.models import Candidate, Jurisdiction
+
+    jurisdiction = Jurisdiction.objects.create(name="J", level="federal")
+    subject = Candidate.objects.create(
+        name="C", jurisdiction=jurisdiction, office="Senator"
+    )
+    assert [c.question for c in criteria_for(subject, "polium")] == ["Anything?"]
+
+
+@pytest.mark.django_db
+def test_another_games_categories_never_apply() -> None:
+    from spendium.models import Product
+    from surveys.service import criteria_for
+
+    polium_cat = Category.objects.create(
+        name="Polium", description="", game="polium", subject_type=None
+    )
+    Criterion.objects.create(category=polium_cat, question="Polium question?", weight=1)
+
+    product = Product.objects.create(canonical_name="Heinz Ketchup")
+    assert criteria_for(product, "spendium") == []
+
+
 @pytest.mark.django_db
 def test_returns_none_with_no_responses(player: Player) -> None:
     assert compute_rating(player) is None

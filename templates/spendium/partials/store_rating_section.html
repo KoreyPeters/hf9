@@ -1,10 +1,15 @@
 {% comment %}
-Two gates, deliberately distinct. A rating is shown once enough people who
-actually bought the product have answered; it is *published* as an aggregate
-only once enough purchases sit behind it, so no individual basket can be
-reverse-engineered from sparse data.
+  Leads with points per dollar, where the product page leads with a percentage.
+
+  For a retailer that is the figure players actually choose on — "29 points per
+  dollar versus 4" is a reason to cross the road, where "68%" is a judgement
+  somebody else made. The percentage is still here, one size down.
+
+  No publish gate, unlike products. That one exists so a sparse aggregate cannot
+  expose an individual basket; "people who shopped at Loblaws think X" carries no
+  such risk.
 {% endcomment %}
-<div id="product-rating-section" data-signals='{}'>
+<div id="store-rating-section" data-signals='{}'>
 
   {% if error %}
   <p style="color:#b91c1c;font-size:.85rem;margin:0 0 1rem">{{ error }}</p>
@@ -13,42 +18,40 @@ reverse-engineered from sparse data.
   <p style="color:#047857;font-size:.85rem;margin:0 0 1rem">Thanks — your rating is recorded.</p>
   {% endif %}
 
-  {# The rating itself #}
-  {% if rating.displayable %}
   <div style="margin-bottom:1.5rem">
-    <p style="font-size:1.6rem;font-weight:600;margin:0">{{ rating.percentage }}%</p>
+    <p style="font-size:1.6rem;font-weight:600;margin:0;color:#047857">
+      {{ points_per_dollar|floatformat:0 }} points per dollar
+    </p>
+    {% if rating.displayable %}
+    <p style="font-size:.95rem;color:#374151;margin:.35rem 0 0">
+      Rated {{ rating.percentage }}%
+    </p>
     <p style="font-size:.8rem;color:#6b7280;margin:.25rem 0 0">
-      from {{ rating.verified_count }} verified
-      {% if breakdown.unverified %}and {{ breakdown.unverified }} unverified{% endif %}
-      rating{{ rating.response_count|pluralize }}
-      {% if not rating.publishable %}
-      &middot; <span title="Aggregates are withheld until enough purchases sit behind them, so no individual basket can be identified">not yet published</span>
-      {% endif %}
+      {% comment %}
+        The count sits next to the score deliberately. A 100% from one person
+        must not read like a 100% from two hundred, and that matters more now
+        that a rating is shown from the first response.
+      {% endcomment %}
+      from {{ rating.response_count }} rating{{ rating.response_count|pluralize }},
+      {{ rating.verified_count }} from {{ rating.verified_count|pluralize:"somebody,people" }} with a receipt
     </p>
-  </div>
-  {% else %}
-  <div style="margin-bottom:1.5rem">
-    <p style="font-size:.9rem;color:#6b7280;margin:0">
-      Not enough ratings yet.
+    {% else %}
+    <p style="font-size:.85rem;color:#6b7280;margin:.35rem 0 0">
+      Not rated yet.
       {% if rating.response_count %}
-      {{ rating.verified_count }} verified so far.
+      {{ rating.response_count }} rating{{ rating.response_count|pluralize }} so far.
+      {% else %}
+      Shopping here earns the base rate until somebody rates it.
       {% endif %}
     </p>
+    {% endif %}
   </div>
-  {% endif %}
-
-  {# Trend #}
-  {% if trend|length > 1 %}
-  <p style="font-size:.75rem;color:#9ca3af;margin:0 0 1.5rem">
-    {{ trend|length }} data point{{ trend|length|pluralize }} recorded over the last two years.
-  </p>
-  {% endif %}
 
   {# The survey #}
   {% if can_rate and criteria %}
   <div style="border-top:1px solid #f3f4f6;padding-top:1.25rem">
     <h2 style="font-family:Georgia,serif;font-weight:normal;font-size:1.05rem;margin:0 0 .25rem">
-      Rate this product
+      Rate this retailer
     </h2>
     {% if category.criteria_are_provisional %}
     <p style="font-size:.75rem;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:4px;padding:.5rem .7rem;margin:0 0 1rem">
@@ -57,14 +60,9 @@ reverse-engineered from sparse data.
     </p>
     {% endif %}
 
-    {% comment %}
-      Anyone signed in may rate. Whether they bought it decides how much the
-      answer counts, not whether it is allowed — said here rather than applied
-      silently afterwards.
-    {% endcomment %}
     {% if not will_be_verified %}
     <p style="font-size:.75rem;color:#6b7280;margin:0 0 1rem">
-      You haven't bought this, so your rating will count for less than one from
+      You haven't shopped here, so your rating will count for less than one from
       somebody with a receipt. It still counts.
     </p>
     {% endif %}
@@ -72,7 +70,7 @@ reverse-engineered from sparse data.
     <div style="display:flex;flex-direction:column;gap:.85rem;margin-bottom:1rem">
       {% for criterion in criteria %}
       <div>
-        <p style="font-size:.875rem;color:#111;margin:0 0 .35rem">{{ criterion.question }}</p>
+        <p style="font-size:.875rem;color:#111;margin:0 0 .3rem">{{ criterion.question }}</p>
         <label style="font-size:.8rem;margin-right:1rem;cursor:pointer">
           <input type="radio" name="criterion_{{ criterion.pk }}"
                  data-bind:criterion_{{ criterion.pk }} value="true"> Yes
@@ -85,7 +83,7 @@ reverse-engineered from sparse data.
       {% endfor %}
     </div>
 
-    <button data-on:click="@post('{% url 'spendium:submit_product_survey' product.sqid %}')"
+    <button data-on:click="@post('{% url 'spendium:submit_store_survey' store.sqid %}')"
             data-indicator:_rating_saving
             data-attr:disabled="$_rating_saving"
             style="padding:.45rem 1.1rem;background:#111;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:.875rem">
@@ -96,7 +94,7 @@ reverse-engineered from sparse data.
   {% elif not user.is_authenticated %}
   <p style="font-size:.85rem;color:#6b7280;border-top:1px solid #f3f4f6;padding-top:1.25rem;margin:0">
     <a href="{% url 'accounts:login' %}" style="color:#1d4ed8">Sign in</a> to rate
-    this product.
+    this retailer.
   </p>
   {% endif %}
 

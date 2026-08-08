@@ -85,13 +85,38 @@ resource "google_cloud_run_v2_service" "app" {
           # memory-backed volume — and it only grows.
           memory = "1Gi"
         }
-        # Litestream replicates from a background process and flushes a final
-        # time on shutdown. Throttling the CPU between requests starves both, so
-        # the WAL would reach GCS late or not at all — the failure this whole
-        # setup exists to prevent. This is what makes scaling to zero safe:
-        # the instance keeps its CPU for as long as it is alive, including the
-        # shutdown grace period where the last sync happens.
-        cpu_idle = false
+        # CPU throttled between requests. This is the single biggest lever on
+        # the bill: with it false, Cloud Run charges for an instance's entire
+        # lifetime rather than only while it is serving, which was costing about
+        # $60/month for a service that uses roughly 1,000 vCPU-seconds against a
+        # 180,000-second monthly free allowance.
+        #
+        # This used to be `false`, and the comment here said throttling would
+        # starve Litestream so the WAL would reach GCS late or not at all.
+        # Reasonable, and measured to be wrong for this workload on 2026-08-08:
+        #
+        #   * A store created at 02:21 produced WAL segments in GCS at 02:21:02,
+        #     :03, :04, :09, :13 and :26 — replication within seconds, throttled.
+        #   * It then survived 17 cold starts over the following 14 hours.
+        #   * Snapshot sizes rose across generations (97,039B → 97,571B), and a
+        #     generation's snapshot is taken from a database restored entirely
+        #     from GCS — so writes demonstrably outlived the container that made
+        #     them.
+        #
+        # Why it holds: throttling removes CPU *between* requests, and this
+        # application only ever writes *during* one. Litestream gets CPU exactly
+        # when there is something to replicate.
+        #
+        # **The tripwire.** That reasoning fails the moment anything writes
+        # outside a request — a long-lived background thread, a periodic job
+        # inside the process rather than via Cloud Scheduler, a queue consumer.
+        # Add one of those and this must go back to `false`, or writes will sit
+        # unreplicated until the next request happens to wake Litestream.
+        #
+        # Unchanged either way: a hard kill with no SIGTERM still loses whatever
+        # has not shipped. That is item 6 in plans/operational-debt.md, and it
+        # was true before this change too.
+        cpu_idle = true
       }
 
       startup_probe {

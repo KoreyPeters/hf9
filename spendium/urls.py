@@ -14,6 +14,12 @@ urlpatterns = [
         views.submit_product_survey,
         name="submit_product_survey",
     ),
+    path("stores/<str:sqid>/", views.store_detail, name="store_detail"),
+    path(
+        "stores/<str:sqid>/rate/",
+        views.submit_store_survey,
+        name="submit_store_survey",
+    ),
     path("actions/", views.action_centre_view, name="action_centre"),
     path(
         "actions/email-preference/",

@@ -62,9 +62,9 @@ urlpatterns = [
         name="task_send_action_centre_emails",
     ),
     path(
-        "snapshot-product-ratings/",
-        spendium_task_views.snapshot_product_ratings,
-        name="task_snapshot_product_ratings",
+        "snapshot-ratings/",
+        spendium_task_views.snapshot_ratings,
+        name="task_snapshot_ratings",
     ),
     path(
         "delete-receipt-image/",

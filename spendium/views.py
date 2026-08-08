@@ -17,11 +17,15 @@ from django.template.loader import render_to_string
 from django.views.decorators.http import require_POST
 
 from points.models import PointTransaction
-from surveys.models import Category, Criterion
-from surveys.service import CoolDownError, submit_survey
+from surveys.service import (
+    CoolDownError,
+    categories_for,
+    criteria_for,
+    submit_survey,
+)
 
 from . import action_centre, disambiguation, ratings, service
-from .models import ActionCentreState, Product, Purchase, PurchaseLineItem
+from .models import ActionCentreState, Product, Purchase, PurchaseLineItem, Store
 
 
 # The discovery section stays hidden below this many publishable products. A
@@ -379,23 +383,31 @@ def purchase_history_export(request: HttpRequest) -> JsonResponse:
 
 def _rating_ctx(product: Product, player: object) -> dict[str, object]:
     rating = ratings.compute(product)
-    category = Category.objects.filter(game="spendium").order_by("pk").first()
-    can_rate = player.is_authenticated and ratings.player_has_bought(player, product)
+    criteria = criteria_for(product, "spendium")
+    # The banner about provisional criteria is per category; with one category
+    # per subject today this is that category, and it degrades to nothing rather
+    # than guessing if a subject ever draws on several.
+    categories = categories_for(product, "spendium")
+    category = categories[0] if len(categories) == 1 else None
+
+    # Anyone signed in may rate. A purchase decides whether the response is
+    # anchored to evidence, not whether it is allowed — `design.md:341` says
+    # players and non-players alike may submit, and this used to gate on having
+    # bought the thing, which contradicted it and made a new product unrateable
+    # by everyone except the handful who had already bought it.
+    can_rate = player.is_authenticated
     return {
         "product": product,
         "rating": rating,
         "breakdown": ratings.response_breakdown(product),
         "trend": ratings.trend(product),
         "category": category,
-        "criteria": (
-            Criterion.objects.filter(category=category, is_active=True).order_by("pk")
-            if category
-            else []
-        ),
+        "criteria": criteria,
         "can_rate": can_rate,
-        # Anyone may rate; only a receipt makes it verified. Saying so up front
-        # is fairer than silently discounting the answer afterwards.
-        "will_be_verified": can_rate,
+        # Said up front, because it is fairer than silently discounting the
+        # answer afterwards. This is what `is_verified` has always meant and
+        # what the weighting already acts on.
+        "will_be_verified": can_rate and ratings.player_has_bought(player, product),
     }
 
 
@@ -407,6 +419,79 @@ def product_detail(request: HttpRequest, sqid: str) -> HttpResponse:
         return redirect("spendium:product_detail", sqid=canonical.sqid)
     return render(
         request, "spendium/product_detail.html", _rating_ctx(product, request.user)
+    )
+
+
+# ── Store ratings ─────────────────────────────────────────────────────────────
+
+
+def _store_rating_ctx(store: Store, player: object) -> dict[str, object]:
+    """Everything the store page needs.
+
+    Leads with points per dollar rather than the percentage. For a retailer that
+    is the figure players choose on — "29 points per dollar versus 4" is a
+    reason to cross the road, where "68%" is a judgement — and the design asks
+    for it prominently.
+    """
+    categories = categories_for(store, "spendium")
+    return {
+        "store": store,
+        "rating": ratings.compute_store(store),
+        "points_per_dollar": ratings.store_points_per_dollar(store),
+        "category": categories[0] if len(categories) == 1 else None,
+        "criteria": criteria_for(store, "spendium"),
+        "can_rate": player.is_authenticated,
+        "will_be_verified": player.is_authenticated
+        and ratings.player_has_shopped_at(player, store),
+    }
+
+
+def store_detail(request: HttpRequest, sqid: str) -> HttpResponse:
+    """Public, for the same reason product pages are: a rating nobody outside
+    the game can see applies no pressure."""
+    store = get_object_or_404(Store, sqid=sqid)
+    return render(
+        request, "spendium/store_detail.html", _store_rating_ctx(store, request.user)
+    )
+
+
+@login_required
+@require_POST
+def submit_store_survey(request: HttpRequest, sqid: str) -> DatastarResponse:
+    store = get_object_or_404(Store, sqid=sqid)
+    signals = read_signals(request) or {}
+
+    answers: dict[int, bool] = {}
+    for key, value in signals.items():
+        if not key.startswith("criterion_"):
+            continue
+        try:
+            answers[int(key.removeprefix("criterion_"))] = bool(value)
+        except ValueError:
+            continue
+
+    error = ""
+    if not answers:
+        error = "Answer at least one question."
+    else:
+        try:
+            submit_survey(
+                request.user,
+                store,
+                answers,
+                is_verified=ratings.player_has_shopped_at(request.user, store),
+            )
+        except CoolDownError as exc:
+            error = f"You rated this recently. Try again in {exc.args[0].days} days."
+
+    context = _store_rating_ctx(store, request.user)
+    context["error"] = error
+    context["submitted"] = not error
+    html = render_to_string(
+        "spendium/partials/store_rating_section.html", context, request=request
+    )
+    return DatastarResponse(
+        ServerSentEventGenerator.patch_elements(html, selector="#store-rating-section")
     )
 
 
@@ -429,14 +514,15 @@ def submit_product_survey(request: HttpRequest, sqid: str) -> DatastarResponse:
     if not answers:
         error = "Answer at least one question."
     else:
-        category = Category.objects.filter(game="spendium").order_by("pk").first()
         try:
+            # No `criteria_version` argument any more — each answer records the
+            # version of its own criterion's category, which is the only place
+            # it is well defined once more than one category can apply.
             submit_survey(
                 request.user,
                 product,
                 answers,
                 is_verified=ratings.player_has_bought(request.user, product),
-                criteria_version=category.criteria_version if category else 1,
             )
         except CoolDownError as exc:
             error = f"You rated this recently. Try again in {exc.args[0].days} days."

@@ -35,6 +35,10 @@ AUDIENCE = {
     "privacy": PUBLIC,
     "product_detail": PUBLIC,
     "submit_product_survey": ANY_PLAYER,
+    # Public for the same reason product pages are: a rating nobody outside the
+    # game can see applies no pressure on the retailer.
+    "store_detail": PUBLIC,
+    "submit_store_survey": ANY_PLAYER,
     "action_centre": ANY_PLAYER,
     "set_email_preference": ANY_PLAYER,
     "purchase_list": ANY_PLAYER,
@@ -124,7 +128,12 @@ def test_non_public_routes_require_login(client, name: str) -> None:
 
 
 def _takes_sqid(name: str) -> bool:
-    return name in {"product_detail", "submit_product_survey"}
+    return name in {
+        "product_detail",
+        "submit_product_survey",
+        "store_detail",
+        "submit_store_survey",
+    }
 
 
 def _takes_pk(name: str) -> bool:

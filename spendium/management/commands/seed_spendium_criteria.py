@@ -48,14 +48,28 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
+        from django.contrib.contenttypes.models import ContentType
+
+        from spendium.models import Product
+
+        # Scoped to Product explicitly. Spendium now has a second rateable
+        # subject, and an unscoped category would be offered for stores too.
+        product_type = ContentType.objects.get_for_model(Product)
         category, created = Category.objects.get_or_create(
             game="spendium",
             name=CATEGORY_NAME,
             defaults={
                 "description": CATEGORY_DESCRIPTION,
                 "criteria_are_provisional": True,
+                "subject_type": product_type,
             },
         )
+        # Set on an existing row too: a database seeded before subject types
+        # existed has this null, which would silently serve product questions
+        # on store pages.
+        if category.subject_type_id != product_type.pk:
+            category.subject_type = product_type
+            category.save(update_fields=["subject_type"])
 
         added = 0
         for question, weight in OPENING_CRITERIA:

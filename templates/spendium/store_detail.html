@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ store.name }} — Spendium{% endblock %}
+{% block content %}
+<main style="max-width:800px;margin:0 auto;padding:2rem 1.5rem;font-family:system-ui,sans-serif">
+
+  <div style="margin-bottom:2rem">
+    <h1 style="font-family:Georgia,serif;font-weight:normal;margin:0">{{ store.name }}</h1>
+    <p style="color:#6b7280;margin:.25rem 0 0;font-size:.9rem">
+      Retailer
+    </p>
+  </div>
+
+  {% include "spendium/partials/store_rating_section.html" %}
+
+  <p style="margin-top:2rem">
+    <a href="{% url 'spendium:purchase_list' %}"
+       style="font-size:.8rem;color:#1d4ed8;text-decoration:none">All receipts</a>
+  </p>
+
+</main>
+{% endblock %}

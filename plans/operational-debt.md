@@ -415,6 +415,56 @@ Found 2026-08-03 while diagnosing a 500 on the magic-link endpoint. See
 
 ---
 
+## 14. Litestream generations are never pruned — FIXED 2026-08-08
+
+**Where:** `litestream.yml`
+
+Thirty-odd generation directories accumulated since May, each holding a full
+snapshot of the database, one per container start.
+
+**The cause was not missing retention.** Litestream 0.3.13 defaults `retention`
+to 24h and it was active the whole time. What was missing was any opportunity to
+act: `retention-check-interval` defaults to **one hour**, and since `cpu_idle`
+became true the container scales to zero and restarts roughly hourly, so the
+cleanup pass almost never survived long enough to run.
+
+Fixed by setting `retention-check-interval: 5m`, which is comfortably inside even
+a short-lived instance, and `retention: 168h` — a week, chosen for the recovery
+window rather than for storage, since snapshots are ~95KB and item 13 means a
+problem could go unnoticed for longer than a day.
+
+Worth keeping the general shape of this in mind: **a periodic task whose interval
+exceeds the process lifetime never runs at all.** Nothing reports that; it simply
+does not happen. Anything else on an hourly in-process timer deserves the same
+question.
+
+Original entry follows.
+
+No retention is configured, so Litestream leaves a generation directory behind
+on every container start. Thirty-odd have accumulated since May, each holding a
+full snapshot of the database.
+
+2.13 MiB today, so it costs nothing. Two things make it worth writing down
+rather than ignoring:
+
+- **The rate just went up.** With `cpu_idle = true` the container scales to zero
+  and restarts roughly hourly, so generations now accrue at about 24/day rather
+  than a handful.
+- **Each one holds a whole snapshot**, so the total grows with the product of
+  restart frequency and database size — both of which increase over time.
+
+Nothing is at risk; restore always uses the newest generation. This is a storage
+bill that grows quietly and a listing that gets harder to read when you are
+trying to diagnose something under pressure.
+
+**Decide:** set a retention policy in `litestream.yml`, or add a GCS lifecycle
+rule on the replica bucket. The first is better — it keeps the decision next to
+the thing making the objects.
+
+Found 2026-08-08 while verifying the `cpu_idle` change.
+
+---
+
 ## Suggested order
 
 1. Item 10 — surface the running revision. Cheapest thing on the list, and the

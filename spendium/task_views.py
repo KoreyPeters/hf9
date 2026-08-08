@@ -99,17 +99,22 @@ def send_action_centre_emails() -> None:
         send_mail(subject, body, None, [player.email], fail_silently=True)
 
 
-@task("snapshot-product-ratings")
-def snapshot_product_ratings() -> None:
-    """Record today's rating for every product.
+@task("snapshot-ratings")
+def snapshot_ratings() -> None:
+    """Record today's rating for every product and every store.
 
     Daily, because a rating computed over a rolling window cannot be
     reconstructed later — the responses behind it age out. A missed day is a
     gap in the trend line, not a correctness problem.
+
+    One task for both subjects rather than a second scheduler entry: they run on
+    the same cadence for the same reason, and splitting them would mean two
+    schedules to keep in step for no benefit.
     """
     from . import ratings
 
     ratings.snapshot_all()
+    ratings.snapshot_all_stores()
 
 
 @task("retro-match")

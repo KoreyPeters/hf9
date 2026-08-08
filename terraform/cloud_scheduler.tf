@@ -68,15 +68,32 @@ resource "google_cloud_scheduler_job" "sweep_purchase_anonymisation" {
 
 # Reads receipts still waiting. Covers two cases with one sweep: uploads that
 # waited out an emergency stop, and uploads whose original task was dropped.
-# Runs every fifteen minutes because the second case is a player watching a
-# receipt say "still reading" — while the stop is on it does nothing, since
-# processing returns early, so it is safe to leave on this cadence throughout
-# an incident.
+# While the stop is on it does nothing, since processing returns early, so it is
+# safe to leave running throughout an incident.
+#
+# Was every fifteen minutes, and that was costing about $45 a month. The service
+# runs with `cpu_idle = false`, so Cloud Run bills CPU for an instance's whole
+# lifetime rather than only while it is serving; an idle instance lingers for
+# roughly fifteen minutes. A job on a fifteen-minute cron therefore kept the
+# container alive permanently — measured over three days, every single hour had
+# requests, with only about ten cold starts a day. Effectively a keepalive with
+# a bill attached.
+#
+# Hourly, and deliberately at :05 so it shares one wake window with
+# `check_deprecations` at :00 and `sweep_receipt_images` at :10. Three jobs in
+# one fifteen-minute window costs one instance lifetime; three spread across the
+# hour costs three.
+#
+# What the delay costs: a receipt whose Cloud Task was genuinely dropped now
+# waits up to an hour rather than fifteen minutes. That case is already rare —
+# Cloud Tasks retries five times before anything reaches this sweep — and the
+# other case, a receipt waiting out an emergency stop, was never going to be
+# resolved in fifteen minutes anyway.
 resource "google_cloud_scheduler_job" "sweep_pending_receipts" {
   name             = "hf-sweep-pending-receipts"
   project          = var.project
   region           = var.region
-  schedule         = "*/15 * * * *"
+  schedule         = "5 * * * *"
   time_zone        = "UTC"
   attempt_deadline = "900s"
 
@@ -166,12 +183,16 @@ resource "google_cloud_scheduler_job" "action_centre_emails" {
   }
 }
 
-# Daily rating snapshots. Ratings are computed over a rolling twelve-month
-# window, so a past value cannot be reconstructed later — the responses behind it
-# age out. Recording them as they happen is the only way to show a trend. A
-# missed run is a gap in the line, not a correctness problem.
-resource "google_cloud_scheduler_job" "snapshot_product_ratings" {
-  name             = "hf-snapshot-product-ratings"
+# Daily rating snapshots, for products and stores alike. Ratings are computed
+# over a rolling twelve-month window, so a past value cannot be reconstructed
+# later — the responses behind it age out. Recording them as they happen is the
+# only way to show a trend. A missed run is a gap in the line, not a correctness
+# problem.
+#
+# One job covering both subjects rather than two: same cadence, same reason, and
+# two schedules would be two things to keep in step.
+resource "google_cloud_scheduler_job" "snapshot_ratings" {
+  name             = "hf-snapshot-ratings"
   project          = var.project
   region           = var.region
   schedule         = "0 5 * * *"
@@ -181,7 +202,7 @@ resource "google_cloud_scheduler_job" "snapshot_product_ratings" {
   depends_on = [google_project_service.apis]
 
   http_target {
-    uri         = "https://humanflourish.ing/tasks/snapshot-product-ratings/"
+    uri         = "https://humanflourish.ing/tasks/snapshot-ratings/"
     http_method = "POST"
 
     oidc_token {
@@ -220,11 +241,15 @@ resource "google_cloud_scheduler_job" "retro_match" {
 # finishes, so this should normally find nothing. Hourly rather than daily
 # because the published commitment is a hard 24 hours: a daily sweep that ran
 # just before a deletion was missed could leave an image alive for nearly 48.
+#
+# Moved from :15 to :10 so it lands in the same wake window as the other two
+# hourly jobs — see the note on `sweep_pending_receipts` for why that is worth
+# money. Nothing about the 24-hour commitment depends on which minute it runs.
 resource "google_cloud_scheduler_job" "sweep_receipt_images" {
   name             = "hf-sweep-receipt-images"
   project          = var.project
   region           = var.region
-  schedule         = "15 * * * *"
+  schedule         = "10 * * * *"
   time_zone        = "UTC"
   attempt_deadline = "300s"
 

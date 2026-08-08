@@ -34,6 +34,7 @@ from .models import (
     Product,
     Purchase,
     PurchaseLineItem,
+    Store,
 )
 
 
@@ -42,10 +43,16 @@ class ActionCentre:
     hot: list[Product] = field(default_factory=list)
     disambiguations: list[PurchaseLineItem] = field(default_factory=list)
     unrated: list[Product] = field(default_factory=list)
+    unrated_stores: list["Store"] = field(default_factory=list)
 
     @property
     def total(self) -> int:
-        return len(self.hot) + len(self.disambiguations) + len(self.unrated)
+        return (
+            len(self.hot)
+            + len(self.disambiguations)
+            + len(self.unrated)
+            + len(self.unrated_stores)
+        )
 
     @property
     def is_empty(self) -> bool:
@@ -121,11 +128,41 @@ def unrated_products(player: object) -> list[Product]:
     return [products[pk] for pk in ordered_ids if pk in products]
 
 
+def unrated_stores(player: object) -> list[Store]:
+    """Retailers this player shopped at and has not rated, most recent first.
+
+    The circle the design asks for: a purchase prompts a survey, and the survey
+    changes what the next purchase pays. Restricted to live purchases like
+    everything else here — once a purchase is anonymised it is nobody's.
+    """
+    rated_ids = set(
+        SurveyResponse.objects.filter(
+            player=player,
+            content_type__app_label="spendium",
+            content_type__model="store",
+        ).values_list("object_id", flat=True)
+    )
+    rows = (
+        Purchase.objects.filter(player=player, store__isnull=False)
+        .exclude(store_id__in=rated_ids)
+        .values("store_id")
+        .annotate(shopped=Max("purchased_at"))
+        .order_by("-shopped")
+    )
+    ordered_ids = [row["store_id"] for row in rows]
+    if not ordered_ids:
+        return []
+
+    stores = {s.pk: s for s in Store.objects.filter(pk__in=ordered_ids)}
+    return [stores[pk] for pk in ordered_ids if pk in stores]
+
+
 def build(player: object) -> ActionCentre:
     return ActionCentre(
         hot=hot_products(player),
         disambiguations=unresolved_disambiguations(player),
         unrated=unrated_products(player),
+        unrated_stores=unrated_stores(player),
     )
 
 
