@@ -1,3 +1,24 @@
+# Every job here carries the same `retry_config`, added 2026-09-01.
+#
+# It was missing entirely, which meant `retry_count` defaulted to zero: one
+# non-2xx response and the run was simply abandoned. That is survivable for the
+# hourly jobs, which get another go in an hour, and not survivable for a weekly
+# one.
+#
+# It bit on 2026-09-01. `hf-action-centre-emails` fires `0 15 * * 2` — once a
+# week. It fired into a cold start that never finished booting, took a 503 at
+# 15:01:58, and that was the whole of it. No retry, no alert on the missing work
+# itself, and the next attempt is seven days later. See
+# plans/startup-hang-and-503s.md.
+#
+# Retrying is safe for all ten. The sweeps say so in their own docstrings, the
+# snapshots are keyed `update_or_create` on today's date, hotness and retro-match
+# are recomputations, and `send_action_centre_emails` records that it sent
+# *before* sending precisely so a retry cannot double-mail.
+#
+# The 30s floor is chosen against the observed failure: a cold start that fails
+# takes about 85 seconds to do so. A 5-second backoff would just hit the same
+# instance still trying to boot. 30s doubling to a 300s ceiling gives it room.
 resource "google_cloud_scheduler_job" "check_deprecations" {
   name             = "hf-check-deprecations"
   project          = var.project
@@ -7,6 +28,14 @@ resource "google_cloud_scheduler_job" "check_deprecations" {
   attempt_deadline = "300s"
 
   depends_on = [google_project_service.apis]
+
+  # Retries, because without them a single transient failure silently drops the
+  # work. See the note at the top of this file.
+  retry_config {
+    retry_count          = 3
+    min_backoff_duration = "30s"
+    max_backoff_duration = "300s"
+  }
 
   http_target {
     uri         = "https://humanflourish.ing/tasks/check-deprecations/"
@@ -28,6 +57,14 @@ resource "google_cloud_scheduler_job" "check_deletions" {
   attempt_deadline = "300s"
 
   depends_on = [google_project_service.apis]
+
+  # Retries, because without them a single transient failure silently drops the
+  # work. See the note at the top of this file.
+  retry_config {
+    retry_count          = 3
+    min_backoff_duration = "30s"
+    max_backoff_duration = "300s"
+  }
 
   http_target {
     uri         = "https://humanflourish.ing/tasks/check-deletions/"
@@ -54,6 +91,14 @@ resource "google_cloud_scheduler_job" "sweep_purchase_anonymisation" {
   attempt_deadline = "300s"
 
   depends_on = [google_project_service.apis]
+
+  # Retries, because without them a single transient failure silently drops the
+  # work. See the note at the top of this file.
+  retry_config {
+    retry_count          = 3
+    min_backoff_duration = "30s"
+    max_backoff_duration = "300s"
+  }
 
   http_target {
     uri         = "https://humanflourish.ing/tasks/sweep-purchase-anonymisation/"
@@ -99,6 +144,14 @@ resource "google_cloud_scheduler_job" "sweep_pending_receipts" {
 
   depends_on = [google_project_service.apis]
 
+  # Retries, because without them a single transient failure silently drops the
+  # work. See the note at the top of this file.
+  retry_config {
+    retry_count          = 3
+    min_backoff_duration = "30s"
+    max_backoff_duration = "300s"
+  }
+
   http_target {
     uri         = "https://humanflourish.ing/tasks/sweep-pending-receipts/"
     http_method = "POST"
@@ -122,6 +175,14 @@ resource "google_cloud_scheduler_job" "snapshot_metrics" {
   attempt_deadline = "600s"
 
   depends_on = [google_project_service.apis]
+
+  # Retries, because without them a single transient failure silently drops the
+  # work. See the note at the top of this file.
+  retry_config {
+    retry_count          = 3
+    min_backoff_duration = "30s"
+    max_backoff_duration = "300s"
+  }
 
   http_target {
     uri         = "https://humanflourish.ing/tasks/snapshot-metrics/"
@@ -147,6 +208,14 @@ resource "google_cloud_scheduler_job" "recompute_hotness" {
 
   depends_on = [google_project_service.apis]
 
+  # Retries, because without them a single transient failure silently drops the
+  # work. See the note at the top of this file.
+  retry_config {
+    retry_count          = 3
+    min_backoff_duration = "30s"
+    max_backoff_duration = "300s"
+  }
+
   http_target {
     uri         = "https://humanflourish.ing/tasks/recompute-hotness/"
     http_method = "POST"
@@ -171,6 +240,14 @@ resource "google_cloud_scheduler_job" "action_centre_emails" {
   attempt_deadline = "1800s"
 
   depends_on = [google_project_service.apis]
+
+  # Retries, because without them a single transient failure silently drops the
+  # work. See the note at the top of this file.
+  retry_config {
+    retry_count          = 3
+    min_backoff_duration = "30s"
+    max_backoff_duration = "300s"
+  }
 
   http_target {
     uri         = "https://humanflourish.ing/tasks/send-action-centre-emails/"
@@ -201,6 +278,14 @@ resource "google_cloud_scheduler_job" "snapshot_ratings" {
 
   depends_on = [google_project_service.apis]
 
+  # Retries, because without them a single transient failure silently drops the
+  # work. See the note at the top of this file.
+  retry_config {
+    retry_count          = 3
+    min_backoff_duration = "30s"
+    max_backoff_duration = "300s"
+  }
+
   http_target {
     uri         = "https://humanflourish.ing/tasks/snapshot-ratings/"
     http_method = "POST"
@@ -225,6 +310,14 @@ resource "google_cloud_scheduler_job" "retro_match" {
   attempt_deadline = "600s"
 
   depends_on = [google_project_service.apis]
+
+  # Retries, because without them a single transient failure silently drops the
+  # work. See the note at the top of this file.
+  retry_config {
+    retry_count          = 3
+    min_backoff_duration = "30s"
+    max_backoff_duration = "300s"
+  }
 
   http_target {
     uri         = "https://humanflourish.ing/tasks/retro-match/"
@@ -254,6 +347,14 @@ resource "google_cloud_scheduler_job" "sweep_receipt_images" {
   attempt_deadline = "300s"
 
   depends_on = [google_project_service.apis]
+
+  # Retries, because without them a single transient failure silently drops the
+  # work. See the note at the top of this file.
+  retry_config {
+    retry_count          = 3
+    min_backoff_duration = "30s"
+    max_backoff_duration = "300s"
+  }
 
   http_target {
     uri         = "https://humanflourish.ing/tasks/sweep-receipt-images/"

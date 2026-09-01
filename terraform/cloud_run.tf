@@ -117,6 +117,26 @@ resource "google_cloud_run_v2_service" "app" {
         # has not shipped. That is item 6 in plans/operational-debt.md, and it
         # was true before this change too.
         cpu_idle = true
+
+        # Extra CPU for the duration of startup only, then back to the limit
+        # above. Added 2026-09-01 while chasing a cold-start hang
+        # (plans/startup-hang-and-503s.md).
+        #
+        # Honest about what this is: startup here is a serial chain of Litestream
+        # restore, `manage.py migrate`, `ensure_superuser`, then uvicorn — and
+        # the Django bootstrap alone imports Pillow, grpc and the genai client.
+        # Healthy boots spend 6-15s in migrate and 12-20s overall against an
+        # 80-second probe budget, all of it single-threaded import work that
+        # more CPU directly shortens.
+        #
+        # It is *not* believed to be the fix for the hang. A starved import
+        # still finishes; the failures observed do not finish at all. This buys
+        # headroom on every cold start and makes the healthy path less marginal,
+        # which is worth having on its own.
+        #
+        # Billed only during startup, so it does not touch the idle-CPU
+        # reasoning above that plans/near-zero-hosting.md is built on.
+        startup_cpu_boost = true
       }
 
       startup_probe {

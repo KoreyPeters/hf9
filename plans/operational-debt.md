@@ -585,3 +585,39 @@ Found 2026-08-31 while verifying the scheduler fix actually wrote rows.
 
 ---
 
+## 17. Scheduled jobs had no retry policy — FIXED 2026-09-01
+
+**Where:** `terraform/cloud_scheduler.tf`
+
+No `retry_config` was set on any of the ten scheduler jobs, so `retry_count`
+defaulted to zero. One non-2xx response and the run was abandoned outright.
+
+**It bit before it was noticed.** On 2026-09-01 `hf-action-centre-emails` — which
+runs `0 15 * * 2`, once a week — fired into a cold start that never finished
+booting, took a 503 at 15:01:58, and stopped there. No retry, and the next
+scheduled attempt was seven days away. The work was recovered only because
+someone happened to be reading the logs for an unrelated reason.
+
+Fixed by adding `retry_count = 3` with a 30s-to-300s backoff to all ten jobs.
+Retrying is safe for every one of them: the sweeps document their idempotency,
+the snapshots are `update_or_create` keyed on today's date, hotness and
+retro-match are recomputations, and `send_action_centre_emails` deliberately
+records that it sent *before* sending so a retry cannot double-mail.
+
+**The general shape, which is the part worth keeping.** Frequency hid the fault.
+Eight of the ten jobs run hourly or daily, so a dropped run was invisible — the
+next one along fixed it. Only the weekly job had a gap long enough for the
+missing retry to matter, and it is the one job where a lost run costs something
+that cannot be recovered by waiting. **A defect that only shows on the rarest
+code path is not a rare defect; it is a defect with a long fuse.** Anything else
+here that runs weekly or less deserves the same look.
+
+Worth noting alongside item 13: alerting would not have caught this either. The
+`scheduler_failure` policy added 2026-08-31 fires on the *failed attempt*, which
+is right, but nothing watches for work that simply never happened.
+
+Found 2026-09-01 while investigating the cold-start hang
+(`plans/startup-hang-and-503s.md`).
+
+---
+
