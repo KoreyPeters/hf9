@@ -495,3 +495,93 @@ found late if alerting does not work.
 Item 7 has left this list: it fired on 2026-07-31, was resolved at the database
 configuration rather than at the session store, and is kept above only for the
 correction it carries — the symptom it predicted was not the symptom it produced.
+## 15. A commit that changes code and infrastructure ships only half of itself
+
+**Where:** `cloudbuild.yaml`, `terraform/`
+
+**Severity: high.** This has already caused one silent 23-day outage of a
+scheduled job, and the mechanism is entirely general.
+
+Pushing to `main` fires the Cloud Build trigger, which runs build → push →
+migrate → deploy → smoke → cutover. Application code therefore ships itself.
+There is no `terraform` step in that pipeline, and no `.github/workflows`
+directory. Infrastructure changes ship only when someone remembers to run
+`terraform apply` from a laptop.
+
+So a commit touching both halves deploys the code half automatically and leaves
+the infrastructure half sitting in the repo, with **nothing reporting the
+difference**. The repo looks correct — it *is* correct — while production
+disagrees with it. This is item 10's problem pointed the other way: there, the
+image might not match the repo; here, the infrastructure does not, and the repo
+being right is exactly what makes it hard to spot.
+
+**The worked example.** Commit 9e8a2d5 renamed a task path and updated
+`terraform/cloud_scheduler.tf` in the same commit, correctly. The code deployed
+that afternoon; the Terraform was never applied. `hf-snapshot-product-ratings`
+then called a URL that no longer existed, 404ing every morning from 2026-08-09
+to 2026-08-31 — 23 consecutive failures, found by hand while looking at
+something else. Full write-up in `plans/scheduler-url-drift.md`.
+
+That incident cost nothing in the end, because production has no survey
+responses yet and the job's correct output was zero rows either way. It would
+not have been free three months from now.
+
+**Partly mitigated 2026-08-31.** `google_monitoring_alert_policy.scheduler_failure`
+now emails on any Cloud Scheduler job failure, so this *class* of drift gets
+caught within a day for scheduled jobs specifically. `core/test_scheduler_targets.py`
+catches the related case where only one of the two files is updated. Neither
+touches the general problem: an unapplied change to Cloud Run limits, IAM, or
+bucket lifecycle would still be invisible.
+
+The alert was **verified end to end before being trusted**, not just deployed: a
+throwaway job pointed at a nonexistent path produced the ERROR log, incremented
+the metric, opened the incident and delivered the email. Worth stating because
+the last policy added to this channel sat unproven for a month, and the
+reasonable-looking assumption about it (item 13) turned out to be wrong in a way
+nobody could have guessed from reading the config.
+
+**Decide:** the honest options are (a) put `terraform plan` in CI so drift is
+*reported* on every push without granting the pipeline apply rights, (b) add a
+gated `terraform apply` step with an approval, or (c) accept manual applies and
+rely on per-resource alerting like the one just added. (a) is the cheapest real
+improvement and does not require trusting the build with broad IAM — but there
+is no CI at all today, so it means standing that up first.
+
+Found 2026-08-31 while investigating the scheduler 404s.
+
+---
+
+## 16. Production has never been seeded with survey criteria
+
+**Where:** `spendium/management/commands/seed_spendium_criteria.py`,
+`spendium/management/commands/seed_store_criteria.py`
+
+**Severity: low, but it hides other faults.** Not a bug — a setup step that has
+not been run.
+
+Counted directly from the production database on 2026-08-31: `surveys_criterion`
+is empty. So is `surveys_surveyresponse`. There are 93 products, 8 stores, 70
+purchase line items and 1 player, so the catalogue and receipt-reading paths have
+been exercised; the rating path has not, because with no criteria there is
+nothing to answer.
+
+`seed_store_criteria` shipped in commit 9e8a2d5 and has never been run at all,
+which is the same shape as item 15: code that arrived in a deploy alongside a
+setup step nobody performed.
+
+**Why it is worth an entry rather than just doing it.** While it stays this way,
+every rating-dependent code path returns empty and looks healthy doing so.
+`snapshot_all()` writes zero rows, `top_rated()` returns `[]`, the Action Centre's
+rating-mover set is empty. A genuine fault anywhere in that chain would produce
+exactly the same output as the current correct behaviour, which is how the
+scheduler 404 went unnoticed for as long as it did — there was no visible
+difference between "broken" and "nothing to do yet".
+
+**Decide:** run both seed commands against production, or decide deliberately
+that Spendium ratings stay dormant until launch and note that here so the next
+person reading empty snapshot tables does not go looking for a bug.
+
+Found 2026-08-31 while verifying the scheduler fix actually wrote rows.
+
+---
+
