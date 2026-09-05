@@ -18,15 +18,33 @@ dbs:
         # cost, is what should set this.
         retention: 168h
 
-        # This is the setting that actually mattered.
+        # Deliberately longer than any container lives, so this check
+        # effectively never fires. **GCS is the pruner**, via the 30-day
+        # lifecycle rule on the bucket in terraform/storage.tf. Litestream's
+        # retention above is a backstop for the unusual case of a long-lived
+        # container, not the primary mechanism.
         #
-        # Retention was never disabled — it defaults to 24h — but the *check*
-        # defaults to running once an hour, and since `cpu_idle = true` the
-        # container scales to zero and restarts roughly hourly. The cleanup pass
-        # almost never survived long enough to run, so generations accumulated:
-        # thirty-odd of them going back to May, one per container start, each
-        # holding a full snapshot.
+        # This was 5m from 2026-08-08 to 2026-09-05, and that was expensive.
         #
-        # Five minutes is comfortably inside even a short-lived instance, so
-        # enforcement actually happens. It costs a handful of LIST calls.
-        retention-check-interval: 5m
+        # The retention check walks every generation individually, so it costs
+        # `generations × checks`. At 252 generations that is roughly 857 LIST
+        # calls every five minutes a container happens to be awake. Measured on
+        # 2026-09-04:
+        #
+        #   150,798  ListObjects   ← this setting
+        #        88  DeleteObject
+        #        74  WriteObject
+        #        72  ReadObject
+        #
+        # At the Class A rate that is about $1.03 CAD/day — $375/year — to prune
+        # 2 MiB of snapshots that were costing nothing. The comment this replaces
+        # claimed it "costs a handful of LIST calls"; it was never measured.
+        #
+        # Note what does *not* help: shortening `retention` above. Generation
+        # count is 0.1% of the cost, check frequency is the other 99.9%. And do
+        # not simply delete these two keys — the defaults are 24h retention with
+        # an hourly check, which both restores the cost on any session over an
+        # hour and gives a thinner recovery window than the lifecycle rule.
+        #
+        # Full working: plans/litestream-retention-cost.md
+        retention-check-interval: 24h

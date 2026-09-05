@@ -415,9 +415,56 @@ Found 2026-08-03 while diagnosing a 500 on the magic-link endpoint. See
 
 ---
 
-## 14. Litestream generations are never pruned — FIXED 2026-08-08
+## 14. Litestream generations are never pruned — FIXED 2026-08-08, and the fix cost $375/year until 2026-09-05
 
-**Where:** `litestream.yml`
+**Where:** `litestream.yml`, `terraform/storage.tf`
+
+**Correction 2026-09-05. The fix below was worse than the problem it solved.**
+
+`retention-check-interval: 5m` did stop generations accumulating. It also began
+costing **about $1.03 CAD/day in GCS LIST operations** — $375/year — to prune
+2 MiB of snapshots that were costing nothing at all. Measured on 2026-09-04,
+whole project, one day:
+
+| Operations | Bucket | Method |
+|---|---|---|
+| **150,798** | `hf-litestream-*` | **ListObjects** |
+| 88 | `hf-litestream-*` | DeleteObject |
+| 74 | `hf-litestream-*` | WriteObject |
+| 72 | `hf-litestream-*` | ReadObject |
+
+Everything else in the project is single or double digits. LIST outnumbers every
+other operation about 1,700 to 1.
+
+The mechanism: the retention check walks every generation individually, so it
+costs `generations × checks` — roughly 857 LISTs every five minutes a container
+is awake, across ~14 hours of daily container uptime. Note what follows from
+that shape: **generation count is 0.1% of the cost and check frequency is
+99.9%**, so shortening the retention window would have achieved nothing.
+
+Resolved by setting the interval to `24h` — longer than any container lives, so
+it never fires — and letting the 30-day GCS lifecycle rule in
+`terraform/storage.tf` do the pruning it was always able to do. Full working in
+`plans/litestream-retention-cost.md`.
+
+**Three things worth carrying forward, none of them about Litestream:**
+
+1. **The original problem was 2 MiB.** It was never costing anything. The entry
+   below correctly says "Nothing is at risk" and "it costs nothing" and then
+   proposes a fix anyway. Tidiness is not a reason to change a running system.
+2. **The fix was never priced.** A five-minute interval against a growing list of
+   generations is a near-quadratic cost, and no one asked what it would bill.
+3. **The lesson from the first fix caused the second fault.** The entry below
+   ends by warning that *a periodic task whose interval exceeds the process
+   lifetime never runs at all* — so the remedy chosen was an interval far
+   *shorter* than the process lifetime. Correct for reliability, and expensive
+   for precisely the same reason. A rule of thumb applied without measuring is
+   just a different way to be wrong.
+
+The general lesson at the bottom of this entry still stands. It simply is not the
+only consideration.
+
+*Original entry, uncorrected, follows.*
 
 Thirty-odd generation directories accumulated since May, each holding a full
 snapshot of the database, one per container start.
