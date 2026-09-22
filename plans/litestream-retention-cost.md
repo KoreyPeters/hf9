@@ -184,10 +184,61 @@ terraform comment rather than only here.
       rule of thumb is what produced this fault: it warned that an interval
       longer than the process lifetime never runs, so the remedy chosen was an
       interval far shorter than it.
-- [ ] After deploy, re-measure GCS operations and record the actual figure here.
+- [x] After deploy, re-measure GCS operations and record the actual figure here.
       Expect ~73/day. **The fix is not verified until that number is in this
       document** — this is the second time a Litestream retention change has had
       an unmeasured consequence.
+
+      **Measured 2026-09-18, on revision `hf-app-00044-k5w` (deployed
+      2026-09-05). The prediction was wrong.**
+
+      | | before (09-04) | predicted | actual (09-18) |
+      |---|---|---|---|
+      | ListObjects/day | 150,798 | ~73 | **38,896** |
+      | DeleteObject/day | 88 | — | **0** |
+      | CAD/day | $1.03 | <$0.01 | **~$0.27** |
+      | CAD/month | ~$31 | ~$0.30 | **~$8** |
+
+      A 74% reduction, not the 99.95% predicted. `DeleteObject` falling to zero
+      confirms the retention check genuinely stopped running, so the change did
+      what it said — **the error was in the accounting, not the fix.**
+
+      **What the residual is.** Hourly LIST counts on 2026-09-18 sit at a
+      baseline of ~1,290–1,300 per hour, rising to 2,500–3,900 in hours with
+      extra cold starts. A container lives ~26 minutes, so a baseline hour is
+      roughly 1,560 seconds of uptime — about 0.83 LIST per second of container
+      life. That is the **1-second sync interval** (`sync-interval=1s`, the
+      Litestream default, visible in the `replicating to` log line), one LIST per
+      tick, and it scales with uptime rather than with generations.
+
+      **Where the original accounting went wrong.** Section 1 attributed 117,624
+      LISTs to retention checks and 73 to container starts, summing exactly to
+      the 117,697 measured that day — so the sync loop was invisible, folded into
+      a total that happened to balance. When I re-measured 150,798 on 09-04 I
+      put the whole 33,101 increase down to generation growth. It was not; it was
+      the sync loop, which had always been there and which nobody had counted.
+      Two measurements, both taken honestly, and the residual hid in both because
+      the first one's arithmetic closed.
+
+- [ ] **Decide what to do about the remaining ~$8/month** — this is a new
+      decision, not a leftover from the fix above.
+
+      Raising `sync-interval` from 1s to 10s would cut the residual roughly
+      tenfold, to well under $1/month. The cost is directly on the durability
+      trade in debt item 6: a hard kill with no SIGTERM currently loses up to
+      ~1 second of writes, and this would widen that to ~10. Item 6 explicitly
+      accepted the 1-second window; 10 seconds is a different bet and is Korey's
+      to make, not mine.
+
+      Do not treat this as obviously worth doing. $8/month is not $31/month, the
+      application writes only during requests, and the last two changes in this
+      area both had consequences nobody priced.
+
+- [ ] **Generations are no longer pruned at 7 days and have grown 252 → 690.**
+      Expected — GCS's 30-day rule is now the only pruner, so the count will
+      settle near 900–1,000 and stop. Storage is still trivial (~31 MB). Worth a
+      check in October that it did in fact stop rather than kept climbing, since
+      nothing alerts on it and the lifecycle rule is now load-bearing.
 
       **Blocked, and blocked twice over.** `litestream.yml` is baked into the
       image by `COPY . .`, so this needs a build and deploy — which needs a push,

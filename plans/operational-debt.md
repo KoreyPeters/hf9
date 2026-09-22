@@ -200,6 +200,46 @@ failed the moment it tried to write. See
 Fixed at the other end, by `transaction_mode = "IMMEDIATE"`, so a read-then-write
 transaction takes the write lock up front and has no snapshot to lose. The
 session writes are unchanged and no longer harmful.
+**Update 2026-09-19: measured, and coupled explicitly to item 5.**
+
+This entry has always been a stated risk rather than an observed one. It is now
+measured. Over fourteen days:
+
+| | |
+|---|---|
+| container starts | 440 |
+| graceful shutdowns (`signal received, litestream shutting down`) | 439 |
+| OOM kills, 30 days | **0** |
+
+The one-off difference is the instance running at the time of the count. So
+**essentially every termination in 440 container lifetimes took the graceful
+path.** Nor is the 10-second SIGTERM grace period close to tight: signal to
+`litestream shut down` measures 128–209ms across sampled shutdowns, under 2% of
+the allowance. There is no plausible route to overrunning it.
+
+**Why this is item 5's problem, not this entry's.** The only realistic cause of a
+hard kill here is an OOM — the other candidates are platform failures outside our
+control, and the grace period has two orders of magnitude of headroom. So the
+hard-kill *rate* is not a constant; it is a function of memory pressure, and item
+5 records that the database has no size ceiling while `/data` is memory-backed
+and only grows. **Item 5 is the trigger for this entry, and this entry is one of
+the reasons item 5 matters.** Neither should be read alone.
+
+**Why it matters more later than now.** The exposure is bounded by unreplicated
+writes, and production currently has one player and no survey responses. Losing
+a second of writes today costs nothing. After launch it costs real user data —
+and that is also when the database is growing fastest, which is when the OOM
+becomes likely. The two curves move together, in the wrong direction.
+
+**What now depends on this.** `plans/litestream-retention-cost.md` proposes
+raising `sync-interval` from 1s to 10s to remove the residual ~$8/month of GCS
+LIST operations. That widens this window tenfold. On the measurement above that
+is defensible — ten times a rate of zero is still zero — but it is a decision
+with an expiry date rather than a permanent one. **Revisit at launch, with item 5
+as the trigger rather than the calendar.** If the sync interval is raised, note
+here that it was, so the next person reading this entry knows the window is 10s
+and not the 1s the text above describes.
+
 
 **Still no action here**, but the reason has changed. It is no longer a latent
 hazard waiting to bite; it is ordinary write volume, and the thing that made it
