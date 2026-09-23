@@ -20,10 +20,25 @@
 # takes about 85 seconds to do so. A 5-second backoff would just hit the same
 # instance still trying to boot. 30s doubling to a 300s ceiling gives it room.
 resource "google_cloud_scheduler_job" "check_deprecations" {
-  name             = "hf-check-deprecations"
-  project          = var.project
-  region           = var.region
-  schedule         = "0 * * * *"
+  name    = "hf-check-deprecations"
+  project = var.project
+  region  = var.region
+
+  # :15, not :00. Five other jobs run at minute zero — check_deletions (02:00),
+  # sweep_purchase_anonymisation (03:00), snapshot_ratings (05:00),
+  # recompute_hotness (06:00) and action_centre_emails (Tue 15:00) — and with
+  # `maxScale = 1` the second job to arrive at a cold instance has nowhere to
+  # queue and takes a 429.
+  #
+  # This job was the one that always lost, because it is the only one present at
+  # all five collision points: five of the six 429s in the 30 days to
+  # 2026-09-22 were this job. Moving it alone closes every one of them.
+  #
+  # :15 keeps it inside the same hourly wake window as sweep_pending_receipts
+  # (:05) and sweep_receipt_images (:10) — a 10-minute span, exactly what :00,
+  # :05, :10 spanned before — so the clustering below still holds. Do not move
+  # this to a minute already in use without re-reading that reasoning.
+  schedule         = "15 * * * *"
   time_zone        = "UTC"
   attempt_deadline = "300s"
 
@@ -116,18 +131,25 @@ resource "google_cloud_scheduler_job" "sweep_purchase_anonymisation" {
 # While the stop is on it does nothing, since processing returns early, so it is
 # safe to leave running throughout an incident.
 #
-# Was every fifteen minutes, and that was costing about $45 a month. The service
-# runs with `cpu_idle = false`, so Cloud Run bills CPU for an instance's whole
-# lifetime rather than only while it is serving; an idle instance lingers for
-# roughly fifteen minutes. A job on a fifteen-minute cron therefore kept the
-# container alive permanently — measured over three days, every single hour had
-# requests, with only about ten cold starts a day. Effectively a keepalive with
-# a bill attached.
+# Was every fifteen minutes, and that was costing about $45 a month. At the time
+# the service ran with `cpu_idle = false`, so Cloud Run billed CPU for an
+# instance's whole lifetime rather than only while it was serving; an idle
+# instance lingers for roughly fifteen minutes. A job on a fifteen-minute cron
+# therefore kept the container alive permanently — measured over three days,
+# every single hour had requests, with only about ten cold starts a day.
+# Effectively a keepalive with a bill attached.
+#
+# **That is history, not current configuration.** `cpu_idle = true` since
+# 2026-08-08 (terraform/cloud_run.tf), so idle time is no longer billed and the
+# "one instance lifetime" arithmetic above no longer applies. This comment
+# claimed otherwise until 2026-09-23.
 #
 # Hourly, and deliberately at :05 so it shares one wake window with
-# `check_deprecations` at :00 and `sweep_receipt_images` at :10. Three jobs in
-# one fifteen-minute window costs one instance lifetime; three spread across the
-# hour costs three.
+# `sweep_receipt_images` at :10 and `check_deprecations` at :15. **The clustering
+# is still right, for a different reason:** what costs money now is the cold
+# start itself — startup CPU, plus a LIST per Litestream generation during
+# restore — so three jobs sharing one wake window still costs one cold start
+# where three spread across the hour would cost three.
 #
 # What the delay costs: a receipt whose Cloud Task was genuinely dropped now
 # waits up to an hour rather than fifteen minutes. That case is already rare —
@@ -358,6 +380,51 @@ resource "google_cloud_scheduler_job" "sweep_receipt_images" {
 
   http_target {
     uri         = "https://humanflourish.ing/tasks/sweep-receipt-images/"
+    http_method = "POST"
+
+    oidc_token {
+      service_account_email = google_service_account.tasks.email
+      audience              = "https://humanflourish.ing"
+    }
+  }
+}
+
+# Keeps the Litestream replica to a bounded number of generations.
+#
+# One generation is created per container start and nothing else removes them:
+# `retention-check-interval` in litestream.yml is deliberately longer than a
+# container lives, so the in-process check never fires. Left alone they reached
+# 758 by 2026-09-22 and put 40 seconds into the front of every cold start,
+# because `litestream restore` inspects every generation to find the newest.
+#
+# Daily is enough: at ~25-33 new generations a day against a keep count of 50,
+# a missed run costs a slightly slower boot and nothing else. See
+# plans/cron-collision-and-boot-regression.md and core/replica.py.
+#
+# 20:40 UTC, chosen to sit away from everything else — well clear of the hourly
+# cluster at :05/:10/:15 and of the daily jobs, which run between 02:00 and
+# 06:00. A prune racing a restore would not corrupt anything (it never touches
+# the newest generations) but it would make both slower.
+resource "google_cloud_scheduler_job" "prune_generations" {
+  name             = "hf-prune-generations"
+  project          = var.project
+  region           = var.region
+  schedule         = "40 20 * * *"
+  time_zone        = "UTC"
+  attempt_deadline = "600s"
+
+  depends_on = [google_project_service.apis]
+
+  # Retries, because without them a single transient failure silently drops the
+  # work. See the note at the top of this file.
+  retry_config {
+    retry_count          = 3
+    min_backoff_duration = "30s"
+    max_backoff_duration = "300s"
+  }
+
+  http_target {
+    uri         = "https://humanflourish.ing/tasks/prune-generations/"
     http_method = "POST"
 
     oidc_token {

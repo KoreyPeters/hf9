@@ -10,12 +10,25 @@ dbs:
         bucket: ${LITESTREAM_GCS_BUCKET}
         path: hf/db
 
-        # How far back the replica can restore to. The default is 24h; a week
-        # costs almost nothing here — a snapshot is about 95KB, so seven days of
-        # hourly container restarts is roughly 16MiB — and 24h is thin when the
-        # thing that would tell you something went wrong is itself unproven
-        # (item 13 in plans/operational-debt.md). Recovery window, not storage
-        # cost, is what should set this.
+        # **This value no longer decides anything.** Kept explicit because
+        # deleting it would restore Litestream's 24h default, and because the
+        # check below never fires it would be equally inert — but less obviously
+        # so to the next reader.
+        #
+        # The real recovery window is set by `LITESTREAM_KEEP_GENERATIONS`
+        # (default 50) in hf/settings/base.py, enforced daily by the
+        # prune-generations task. That is a **count**, not a duration: at the
+        # 25-33 cold starts/day observed in September 2026 it works out at
+        # roughly 36-48 hours, and it shrinks if cold starts become more
+        # frequent. So the effective window is shorter than the seven days this
+        # line reads as.
+        #
+        # Why a count: boot time depends on how many generations exist, because
+        # `litestream restore` inspects every one of them. An age-based window
+        # cannot bound that, and an age-based *lifecycle rule* has a worse
+        # property still — it deletes unconditionally, so an idle application
+        # loses its whole replica. Keeping the newest N has no such cliff.
+        # See core/replica.py and plans/cron-collision-and-boot-regression.md.
         retention: 168h
 
         # Deliberately longer than any container lives, so this check

@@ -1,4 +1,5 @@
 import accounts.task_views as accounts_task_views
+import core.task_views as core_task_views
 import lifecycle.task_views as lifecycle_task_views
 import polium.task_views as polium_task_views
 import spendium.task_views as spendium_task_views
@@ -75,5 +76,10 @@ urlpatterns = [
         "sweep-receipt-images/",
         spendium_task_views.sweep_receipt_images,
         name="task_sweep_receipt_images",
+    ),
+    path(
+        "prune-generations/",
+        core_task_views.prune_generations,
+        name="task_prune_generations",
     ),
 ]

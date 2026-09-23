@@ -455,7 +455,48 @@ Found 2026-08-03 while diagnosing a 500 on the magic-link endpoint. See
 
 ---
 
-## 14. Litestream generations are never pruned — FIXED 2026-08-08, and the fix cost $375/year until 2026-09-05
+## 14. Litestream generations — three fixes, each of which broke something the last one relied on
+
+**Correction 2026-09-23, the third on this entry.** The 2026-09-05 fix described
+below stopped the $31/month of LIST operations exactly as intended, and in doing
+so **tripled cold-start time**.
+
+Setting `retention-check-interval: 24h` meant nothing pruned generations any
+more. They grew 252 → 820 in eighteen days. `litestream restore` inspects every
+generation to find the newest, at roughly 50ms each, so that put **42 seconds of
+silence into the front of every cold start** — measured 2026-09-22, boot up from
+~20s to ~60s against an 80-second startup probe budget, still climbing, and
+heading back toward the 503 outage of 2026-09-01.
+
+Resolved by a daily `prune-generations` task keeping the newest 50
+(`core/replica.py`). Count, not age: boot time depends on how many generations
+exist, and an age-based rule cannot bound that. Full account in
+`plans/cron-collision-and-boot-regression.md`.
+
+**The through-line across all three fixes is worth more than any of them.**
+
+| fix | solved | broke |
+|---|---|---|
+| 2026-08-08, `retention-check-interval: 5m` | 2 MiB of unpruned snapshots | $31/month in LIST operations |
+| 2026-09-05, `retention-check-interval: 24h` | the $31/month | 40 seconds on every cold start |
+| 2026-09-23, prune task at N=50 | the boot time | *(watch this space)* |
+
+Each fix was reasoned carefully, measured on the axis it was about, and
+unmeasured on the axis it broke. The first optimised storage without pricing
+operations. The second optimised operations having explicitly written that
+generation count "turns out not to be the cost" — true of billing, false of
+latency. **The question that would have caught all three is the same one: what
+else is a function of the thing I am about to change without limit?**
+
+A fourth instance, inside the third fix: the prune's first run used
+`blob.delete()`, which on a blob from `list_blobs` is a *versioned* delete and
+permanently destroyed 1,686 objects that the plan had promised would be archived
+as recoverable noncurrent versions. Caught by counting objects before and after,
+not by reading the code. Fixed to `bucket.delete_blob(name)`.
+
+*Previous correction and original entry follow.*
+
+## 14 (previous). Litestream generations are never pruned — FIXED 2026-08-08, and the fix cost $375/year until 2026-09-05
 
 **Where:** `litestream.yml`, `terraform/storage.tf`
 
@@ -708,3 +749,90 @@ Found 2026-09-01 while investigating the cold-start hang
 
 ---
 
+## 18. Nothing measures cold-start duration
+
+**Where:** `terraform/monitoring.tf`
+
+**Severity: medium.** Not a fault in itself — a blind spot that let a real one
+run for eighteen days.
+
+Between 2026-09-06 and 2026-09-23 cold-start time tripled, from about 20 seconds
+to about 60, degrading steadily and monotonically every single day. Nothing
+reported it. It was found only as a side effect of investigating unrelated 429
+alerts, and the evidence had to be reconstructed after the fact by counting
+`STARTUP TCP probe succeeded after N attempts` log lines per day — a proxy that
+happens to work because `period_seconds = 5`, not a measurement anyone designed.
+
+**Why the existing alerts could not see it.** Every policy in `monitoring.tf`
+watches for a *discrete failure*: a 5xx response, an OOM log line, a scheduler
+job returning non-2xx. A gradual degradation produces none of those until it
+crosses a threshold, at which point it stops being gradual and becomes an
+outage — which is exactly what happened on 2026-09-01, and what was about to
+happen again. **The alerting is built entirely around events, and has no notion
+of a trend.**
+
+There is a worked example of the cost. Boot time crossing the 80-second startup
+probe budget produces 503s, and the users who see them are whoever happened to
+arrive during a cold start. By the time that alert fires the site is already
+down; a boot-time metric would have said so a week earlier, while it was merely
+getting slower.
+
+**Decide:** the cheap version is a log-based metric on the probe-attempt count,
+alerting above some threshold — it needs no new instrumentation, since the log
+line already exists and already carries the number. The thorough version is to
+log the boot phases explicitly from `start.sh` with timings, so the next
+regression names its own cause instead of requiring a 42-second gap to be
+noticed by eye.
+
+Worth doing before the `initial_delay_seconds = 30` question is reopened: that
+setting puts a floor under every cold start, and there is currently no way to
+tell whether changing it helped.
+
+Found 2026-09-23 while investigating the scheduler 429s. See
+`plans/cron-collision-and-boot-regression.md`.
+
+---
+
+## Suggested order
+
+*Re-ranked 2026-08-08 after the audit.*
+
+1. ~~Item 8 — store deduplication.~~ **Done 2026-08-08**, before store ratings
+   deployed, which was the point. What remains of it — `flag_count`, unmerging —
+   is not urgent and has no deadline attached.
+2. **Item 13 — one question, not a project.** Did a Cloud Monitoring email arrive
+   for the 5xx on 2026-08-03 at 03:24Z? Answering it either closes the item or
+   promotes it above everything. Minutes of work, and every other item here is
+   found late if alerting does not work.
+3. **Item 10 — surface the running revision.** Cheapest thing on the list, and
+   the only one that has already wasted a debugging session rather than merely
+   threatening to.
+4. Items 2 and 3 together — both are `collectstatic` running in the wrong
+   container, and both are small.
+5. Item 5 — track database size. The only remaining item whose absence means a
+   failure arrives with no warning at all.
+6. Item 4 — a decision to make deliberately rather than a bug to fix. Take the
+   third call site into account: `verify-email-reminder` re-enqueues itself, so a
+   dropped enqueue ends the chain rather than skipping one message.
+7. Item 1 — no longer urgent now that one worker makes the cache coherent, but it
+   is what pins the worker count, and item 12 now depends on it more heavily than
+   it did. Confirm passkeys work before closing it out.
+8. Item 9 — no deadline, but a trigger: resolve it before the first deliberate
+   criteria change, not after. Afterwards the fix has to decide what to do with
+   answers already pooled.
+9. Item 11 — waiting on evidence, and the evidence is Korey finding the Action
+   Centre annoying. Confirmed still uncapped in the audit. Cheap whenever it is
+   picked up.
+10. Item 12 — folded into item 1 whenever Redis lands. Now reset roughly hourly
+    rather than occasionally, so the signup limit is close to decorative; what
+    actually guards signup today is Turnstile.
+11. Item 6 — recorded, no action, revisit on evidence.
+
+**Left this list:**
+
+- **Item 7** fired on 2026-07-31, was resolved at the database configuration
+  rather than at the session store, and is kept above only for the correction it
+  carries — the symptom it predicted was not the symptom it produced.
+- **Item 14** fixed 2026-08-08. Kept for the general lesson: a periodic task
+  whose interval exceeds the process lifetime never runs at all, and nothing
+  reports that.

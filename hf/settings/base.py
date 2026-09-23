@@ -273,6 +273,25 @@ CLOUD_TASKS_QUEUE = config("CLOUD_TASKS_QUEUE", default="hf-tasks")
 TASK_BASE_URL = config("TASK_BASE_URL", default="http://localhost:8000", cast=clean)
 TASK_SERVICE_ACCOUNT = config("TASK_SERVICE_ACCOUNT", default="", cast=clean)
 
+# The Litestream replica bucket. Already injected into the container for
+# litestream itself (terraform/secrets.tf); read here so the prune task can
+# reach it. Empty by default, and the task refuses to run without it rather
+# than guessing a bucket name — see core.replica.
+LITESTREAM_GCS_BUCKET = config("LITESTREAM_GCS_BUCKET", default="", cast=clean)
+
+# How many Litestream generations to keep. One is created per container start,
+# so this is a count, not a duration: at the 25-33 cold starts/day observed in
+# September 2026 it is roughly 36-48 hours of restore points.
+#
+# It is also a direct dial on boot time. `litestream restore` inspects every
+# generation to find the newest, at roughly 50ms each, so 50 generations costs
+# about 2.5 seconds on every cold start and 750 cost about 40 seconds. That is
+# not hypothetical: generations reached 758 in September 2026 and tripled cold
+# starts. See plans/cron-collision-and-boot-regression.md.
+LITESTREAM_KEEP_GENERATIONS = config(
+    "LITESTREAM_KEEP_GENERATIONS", default=50, cast=int
+)
+
 SQID_SALTS = {
     "candidate": config("SQID_SALT_CANDIDATE"),
     "election": config("SQID_SALT_ELECTION"),
