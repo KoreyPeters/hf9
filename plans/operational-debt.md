@@ -10,6 +10,13 @@ file tracks things that *are* built and are wrong, mostly operational.
 
 Opened 2026-07-26, from findings during the Cloud Tasks IAM incident.
 
+**Audited 2026-08-08.** Every entry re-checked against the code. Twelve of the
+thirteen open items still stand; item 13's central accusation turned out to be
+wrong and is corrected below; four entries had references that had drifted out of
+date, and two had got worse without the register saying so. Where an entry has
+been revised, the original wording is kept alongside it — a claim that was
+reasonable and turned out wrong is worth more than a claim quietly deleted.
+
 ---
 
 ## 1. Production has no shared cache, and is pinned to one worker because of it
@@ -111,7 +118,15 @@ to item 2 — both stem from `collectstatic` running in the wrong container.
 
 ## 4. `enqueue` call sites outside spendium still fail hard
 
-**Where:** `accounts/views.py:118`, `polium/views.py:1103`
+**Where:** `accounts/views.py:142`, `polium/views.py:1110`,
+`accounts/task_views.py:38` *(line numbers corrected 2026-08-08; the third site
+was missed when this was written)*
+
+The third one matters and changes the shape of the entry: `verify-email-reminder`
+re-enqueues **itself** from inside the task (`task_views.py:38`). A dropped
+enqueue there does not merely skip one reminder — it ends the chain, so no
+further reminder is ever scheduled for that player. The other two lose one piece
+of work; this one loses all remaining work silently.
 
 `spendium/service.py` now absorbs enqueue failures via `_enqueue_or_sweep`, which
 is safe there *only* because every task it covers has a scheduled sweep that calls
@@ -153,53 +168,38 @@ work out the real ceiling before receipts accumulate. Raising the volume's
 
 ---
 
-## 6. Scale-to-zero can lose the tail of the WAL
+## 6. A hard kill can lose the tail of the WAL
 
-**Where:** `terraform/cloud_run.tf` (`cpu_idle = false`, `min_instance_count = 0`)
+**Where:** `terraform/cloud_run.tf` (`cpu_idle = true`, `min_instance_count = 0`)
+*(said `cpu_idle = false` until 2026-08-08 — see below)*
 
 Accepted trade, recorded so it is not rediscovered as a surprise.
 
-Graceful shutdown is verified working: Litestream signals uvicorn, waits for it to
-close, then syncs. But an instance killed without SIGTERM (OOM, platform
-eviction) loses whatever had not replicated — bounded by Litestream's sync
-interval, so roughly a second of writes.
+An instance killed without SIGTERM — OOM, platform eviction — loses whatever had
+not replicated, bounded by Litestream's sync interval, so roughly a second of
+writes.
 
 `min_instance_count = 1` would shrink the window at the cost of an always-on
 instance. Explicitly declined 2026-07-26 in favour of scale-to-zero.
 
+**Update 2026-08-08: the graceful path is now much better evidenced, and the
+setting this entry cited has inverted.**
+
+`cpu_idle` became `true` (see `plans/near-zero-hosting.md`), which this entry
+would have predicted made things worse — the old comment in `cloud_run.tf` said
+throttling would starve Litestream. Measured, it does not: writes reached GCS
+within seconds under throttling, and a test row survived 17 cold starts. The
+reason is that this application only writes during requests, which is exactly
+when CPU is allocated.
+
+So the graceful path is stronger than when this was written, and it is now
+exercised far more often — the container restarts roughly hourly rather than
+rarely. **The hard-kill window is unchanged**, which is the whole of what this
+entry is about.
+
 **No action.** Revisit if data loss is ever observed, or if item 5 makes OOM kills
 likely.
 
----
-
-## 7. Session writes land on a single-writer database
-
-**Where:** `hf/settings/base.py` (`SESSION_SAVE_EVERY_REQUEST`)
-
-Rolling year-long sessions mean a session row is rewritten on every authenticated
-request rather than once per login. That is the intended tradeoff — the point is
-that a ten-second errand should never meet a login screen — but it multiplies
-writes on a database that permits exactly one writer, and every write becomes WAL
-that Litestream ships to GCS.
-
-**Update 2026-08-02: it happened, and the prediction was half right.**
-
-Every receipt upload was failing with "database is locked", and this was the
-other half of the mechanism — the session write on the redirect after upload is
-what broke the `process-receipt` task's transaction. So the write pressure noted
-here was real and it was load-bearing.
-
-But not through contention, which is what "first thing to examine if write
-contention appears" led the first investigation to look for, and why that
-investigation reached the wrong answer. The session write did not make anything
-*wait*. It committed, instantly and successfully, and thereby invalidated the WAL
-snapshot of a transaction that had been open across a Gemini call — which then
-failed the moment it tried to write. See
-`plans/receipt-upload-database-locked.md`.
-
-Fixed at the other end, by `transaction_mode = "IMMEDIATE"`, so a read-then-write
-transaction takes the write lock up front and has no snapshot to lose. The
-session writes are unchanged and no longer harmful.
 **Update 2026-09-19: measured, and coupled explicitly to item 5.**
 
 This entry has always been a stated risk rather than an observed one. It is now
@@ -240,6 +240,36 @@ as the trigger rather than the calendar.** If the sync interval is raised, note
 here that it was, so the next person reading this entry knows the window is 10s
 and not the 1s the text above describes.
 
+---
+
+## 7. Session writes land on a single-writer database
+
+**Where:** `hf/settings/base.py` (`SESSION_SAVE_EVERY_REQUEST`)
+
+Rolling year-long sessions mean a session row is rewritten on every authenticated
+request rather than once per login. That is the intended tradeoff — the point is
+that a ten-second errand should never meet a login screen — but it multiplies
+writes on a database that permits exactly one writer, and every write becomes WAL
+that Litestream ships to GCS.
+
+**Update 2026-08-02: it happened, and the prediction was half right.**
+
+Every receipt upload was failing with "database is locked", and this was the
+other half of the mechanism — the session write on the redirect after upload is
+what broke the `process-receipt` task's transaction. So the write pressure noted
+here was real and it was load-bearing.
+
+But not through contention, which is what "first thing to examine if write
+contention appears" led the first investigation to look for, and why that
+investigation reached the wrong answer. The session write did not make anything
+*wait*. It committed, instantly and successfully, and thereby invalidated the WAL
+snapshot of a transaction that had been open across a Gemini call — which then
+failed the moment it tried to write. See
+`plans/receipt-upload-database-locked.md`.
+
+Fixed at the other end, by `transaction_mode = "IMMEDIATE"`, so a read-then-write
+transaction takes the write lock up front and has no snapshot to lose. The
+session writes are unchanged and no longer harmful.
 
 **Still no action here**, but the reason has changed. It is no longer a latent
 hazard waiting to bite; it is ordinary write volume, and the thing that made it
@@ -255,7 +285,37 @@ deliberately argues against.
 
 ---
 
-## 8. Stores are deduplicated by name only, and nothing merges them
+## 8. Stores are deduplicated by name only — LARGELY FIXED 2026-08-08
+
+**Fixed:** `plans/store-deduplication.md`. Stores now match on a normalised key
+(`name_normalised`, unique), so case, punctuation and branch numbers collapse
+automatically — `LOBLAWS`, `Loblaws` and `Loblaws #1234` reach one record. What
+normalisation cannot judge, `Store.merged_into` plus an admin merge action
+repairs, and ratings, points and `player_has_shopped_at` all resolve through the
+merge group so a merge never orphans what was attached to the retired record.
+
+`list_duplicate_stores` proposes candidates; it never acts.
+
+**Two things from the original entry are still open:**
+
+- **`Store.flag_count` still returns `0`**, so the `LifecycleMixin` deprecation
+  route remains inert. Merging is now an admin action rather than a community
+  one, which was the decision — but if community flagging is ever wanted, this
+  is where it starts.
+- **No way to split a merge back apart.** `merged_into` can be cleared by hand
+  and `rebuild_merge_roots` will repair the cache, but there is no interface and
+  no test for it.
+
+**And one added:** `merge_root_id_cache` is a denormalisation, so it can drift,
+and a drifted value does not look wrong — a group read simply returns a subset.
+`manage.py rebuild_merge_roots --check` reports drift and
+`rebuild_merge_roots` repairs it; a test asserts the maintained cache matches a
+fresh rebuild. Worth running `--check` if store points or ratings ever look
+lower than they should.
+
+Original entry follows.
+
+## 8 (original). Stores are deduplicated by name only, and nothing merges them
 
 **Where:** `spendium/service.py:70-82`, `spendium/models.py:29-50`
 
@@ -289,11 +349,41 @@ The cheap partial mitigation, if it bites before then, is admin-side merge with
 a `merged_into` FK mirroring `Product`, since the aggregation code would then be
 the same shape in both places.
 
+**Escalated 2026-08-08. This is now the most urgent item on the list.**
+
+The "why it is getting worse" paragraph above was written while store rating was
+hypothetical. It is now built (`plans/rateable-subjects-and-store-ratings.md`)
+and waiting to deploy, so the cost it describes stops being a prediction the
+moment that push happens: two records for one chain will accumulate separate
+survey responses, clear the k-threshold separately or not at all, and pay
+different points per dollar for shopping at the same place.
+
+Worse, it compounds silently. Every receipt read before a merge exists anchors
+its rating to whichever fragment the printed name happened to produce, and there
+is no `merged_into` to resolve them through afterwards — so ratings given to
+"LOBLAWS #1234" cannot later be pooled into "LOBLAWS" without a migration that
+decides which was canonical.
+
+**Reconsider before deploying store ratings**, not after. The cheapest thing that
+would hold the line is the admin-side merge with a `merged_into` FK; it does not
+have to be automatic to be useful.
+
 ---
 
-## 9. `criteria_version` is recorded on every response and read by nothing
+## 9. `criteria_version` is recorded on every answer and read by nothing
 
-**Where:** `surveys/models.py:12,87`, `surveys/ratings.py:11,40`
+**Where:** `surveys/models.py:22` (`Category`), `surveys/models.py:116`
+(`CriterionAnswer`), `surveys/ratings.py:11,40`
+
+*Corrected 2026-08-08.* The field moved off `SurveyResponse` onto
+`CriterionAnswer`, so the old citation of `models.py:87` no longer exists — a
+response can span several categories once a subject is asked more than one
+question set, and each category keeps its own counter, so one integer per
+response could not describe them. `submit_survey` no longer takes it as an
+argument either; each answer reads the version from its own criterion's category.
+
+**What was recorded is now well-defined. What reads it is still nothing**, which
+is the entirety of this entry and is unchanged.
 
 `Category.criteria_version` is bumped when a question set changes, and every
 `SurveyResponse` records the version in force when it was answered. The field's
@@ -424,6 +514,16 @@ traffic.
 
 Found 2026-08-02 while investigating `plans/bot-signups.md`.
 
+**Worse since 2026-08-08.** `cpu_idle = true` means the container actually scales
+to zero now, and the hourly scheduler wakes it — so it restarts roughly **24
+times a day** instead of occasionally. The signup limit of five per hour is
+therefore reset about hourly, which is close to meaning nothing.
+
+Turnstile now sits in front of signup and is the real control, so this is not the
+exposure it was when it was found. But the two facts should be read together
+rather than separately: the rate limit is decorative until Redis exists, and
+Turnstile is doing the actual work.
+
 ---
 
 ## 13. Error alerts depend on the thing most likely to be broken
@@ -444,11 +544,60 @@ depend on Mailgun — so there *was* a second channel. Worth confirming whether 
 fired and, if not, why: an alert policy that missed twenty 500s is a bigger
 problem than the mail backend.
 
-**Decide:** at minimum, confirm the Cloud Monitoring 5xx policy actually fires,
-since it is the only alerting path that survives an email outage. Beyond that,
-mail delivery failures deserve to be visible somewhere that is not email —
+**Correction 2026-08-08: the policy did not miss them. It did not exist yet.**
+
+Checked against the deployed policies rather than the code:
+
+| | |
+|---|---|
+| `hf-app returning 5xx` created | **2026-07-26T16:59Z** |
+| Signup 500s ran | 20–26 July, last one **10:20Z on the 26th** |
+
+Six hours apart, the wrong way round. For all but the last few hours of that
+period there was no policy to fire. The accusation in the paragraph above —
+"an alert policy that missed twenty 500s" — is wrong and is left standing only
+so the correction is legible.
+
+Both policies are deployed, enabled, and correctly built: the 5xx condition
+alerts on **any** 5xx in a 60-second window (threshold 0, trigger count 1), and
+its notification channel is a Cloud Monitoring email that does not touch Mailgun.
+On paper the second channel is sound.
+
+**Answered 2026-08-31: the alert emails arrive. The mechanism works.**
+
+Confirmed by Korey — Cloud Monitoring alert emails have been received, and it was
+one of them that prompted the investigation in `plans/scheduler-url-drift.md`.
+That is the strongest form of the answer available: the channel is not merely
+configured, it has demonstrably moved a real failure from the logs to a human,
+who then acted on it.
+
+So the second layer is doing its job, and this entry drops to the bottom of the
+list as the original text anticipated. **The structural observation still
+stands** and is why the entry is not closed: `AdminEmailHandler` swallows its own
+exceptions by design, so a Mailgun failure remains silent by construction, and
+the Cloud Monitoring channel is the only thing that would say otherwise. That is
+now known to work rather than assumed to.
+
+A fourth policy was added on the same channel on 2026-08-31
+(`scheduler_failure`, see item 15), which is only worth having because of this
+answer. That one was then confirmed the direct way, which is the standard this
+entry should have been held to from the start: a deliberately induced scheduler
+failure produced an email, observed rather than inferred. The channel is proven
+by a controlled test, not only by incident history.
+
+*Original open question follows.*
+
+**The one thing still unverified**, and it is now a single question rather than an
+investigation: the magic-link 500 on **2026-08-03 at 03:24Z** happened *after*
+the policy existed. Did an alert email arrive? If yes, this entry drops to the
+bottom of the list — the structural point stands but the mechanism works. If no,
+it is a real fault and stays at the top.
+
+**Decide:** the structural observation is unchanged and still worth acting on —
+mail delivery failures deserve to be visible somewhere that is not email, since
 `AdminEmailHandler` swallows its own exceptions by design, so a failing alert
-channel is silent by construction.
+channel is silent by construction. But that is a smaller job than this entry
+originally implied.
 
 Found 2026-08-03 while diagnosing a 500 on the magic-link endpoint. See
 `plans/bot-signups.md`.
@@ -593,36 +742,6 @@ Found 2026-08-08 while verifying the `cpu_idle` change.
 
 ---
 
-## Suggested order
-
-1. Item 10 — surface the running revision. Cheapest thing on the list, and the
-   only one that has already wasted a debugging session rather than merely
-   threatening to.
-2. Items 2 and 3 together — both are `collectstatic` running in the wrong
-   container, and both are small.
-3. Item 5 — track database size. The only remaining item whose absence means a
-   failure arrives with no warning at all.
-4. Item 4 — a decision to make deliberately rather than a bug to fix.
-5. Item 1 — no longer urgent now that one worker makes the cache coherent, but it
-   is what pins the worker count. Confirm passkeys work before closing it out.
-6. Item 6 — recorded, no action, revisit on evidence.
-7. Item 8 — no action until store ratings ship, then reassess. It is the one
-   item on this list that a shipping feature actively makes worse.
-8. Item 9 — no deadline, but a trigger: resolve it before the first deliberate
-   criteria change, not after. Afterwards the fix has to decide what to do with
-   answers already pooled.
-9. Item 11 — waiting on evidence, and the evidence is Korey finding the Action
-   Centre annoying. Cheap whenever it is picked up.
-10. Item 12 — folded into item 1 whenever Redis lands. Worth knowing before then
-    that the signup rate limit is weaker than it reads.
-
-Item 13 jumps the queue: confirming the Cloud Monitoring 5xx policy fires is
-worth doing before anything else on this list, because every other item here is
-found late if alerting does not work.
-
-Item 7 has left this list: it fired on 2026-07-31, was resolved at the database
-configuration rather than at the session store, and is kept above only for the
-correction it carries — the symptom it predicted was not the symptom it produced.
 ## 15. A commit that changes code and infrastructure ships only half of itself
 
 **Where:** `cloudbuild.yaml`, `terraform/`
@@ -749,7 +868,46 @@ Found 2026-09-01 while investigating the cold-start hang
 
 ---
 
-## 18. Nothing measures cold-start duration
+## 18. Nothing measures cold-start duration — FIXED 2026-09-26
+
+**Fixed by `google_monitoring_alert_policy.cold_start_latency` in
+`terraform/monitoring.tf`**, alerting above 45 seconds.
+
+**This entry proposed the wrong fix, and the correction is the useful part.** It
+called for a log-based metric extracting the probe-attempt count from
+`STARTUP TCP probe succeeded after N attempts`. That was unnecessary:
+`run.googleapis.com/container/startup_latencies` is a built-in Cloud Run metric —
+DELTA, DISTRIBUTION, milliseconds, per revision — and it had been recording this
+service the entire time, including the whole September regression, while the
+entry below asserted nothing was measuring it.
+
+| date | cold starts | mean |
+|---|---|---|
+| 2026-09-12 | 31 | 39.1s |
+| 2026-09-22 | 35 | 61.3s |
+| 2026-09-24 | 35 | 30.9s |
+| 2026-09-26 | 17 | 30.0s |
+
+So the blind spot was never instrumentation. It was **not having looked for a
+metric before deciding to build one** — and a probe-attempt count would have been
+a coarse proxy for a duration the platform already reported exactly.
+
+**A trap worth keeping.** Querying this metric with `ALIGN_PERCENTILE_50` over a
+multi-day window returned p50 = 68.1s for a period whose true mean was 30.0s.
+Reconstructing the histogram from the raw exponential buckets gave 78 of 79 starts
+in the bucket beginning at 30.0s. The aligner was the artefact, not the data. The
+deployed policy therefore uses `ALIGN_DELTA` with `REDUCE_MEAN`, verified against
+two known days before being trusted: 2026-09-22 returned 61.3s against a
+hand-computed 61.3s, and 2026-09-25 returned 30.0s against 30.0s.
+
+**What is still not fixed** is the general shape this entry identified: every
+other policy in `monitoring.tf` fires on a discrete event, and this is the only
+one watching a trend. A 45-second threshold catches a regression of the size seen
+in September; a slower or smaller one would still arrive as an outage.
+
+Original entry follows.
+
+## 18 (original). Nothing measures cold-start duration
 
 **Where:** `terraform/monitoring.tf`
 
@@ -790,6 +948,49 @@ tell whether changing it helped.
 
 Found 2026-09-23 while investigating the scheduler 429s. See
 `plans/cron-collision-and-boot-regression.md`.
+
+## 19. Boot got twice as slow on 2026-10-13 and nothing on our side changed
+
+**Where:** the Cloud Run host. Probably. That is an inference, not a finding.
+
+**Severity: medium**, falling to low once the image ships bytecode.
+
+The time from Litestream restore to `migrate`'s first output went from p50 ~6s,
+p90 ~8s to p50 ~12s, p90 20–43s, max 58.5s, starting about 2026-10-13. The tail
+reached the 60-second `timeout` in `start.sh` on 2026-10-20, and three boots
+failed in twelve hours. The serving revision (`hf-app-00046-khg`) has been
+unchanged since 2026-09-26, and the database and generation count are stable.
+The work at boot is identical. It is being done slower.
+
+**Why it is debt and not fixed:** the bytecode change in
+`plans/migrate-slow-tail.md` removes compile-at-boot, which is the work that got
+slower, so the symptom should go away without the cause ever being explained. If
+whatever slowed the host gets worse, it will next show up in the parts of boot
+that bytecode does not touch: imports, Litestream, uvicorn startup.
+
+**Also note** that the `cold_start_latency` alert (item 18) is on the daily
+*mean*, with a 45s threshold. Here a p50 moving from 6s to 12s sat under it while
+the tail failed. I have not checked whether that alert fired during this period.
+
+Found 2026-10-21 investigating a rise in alert emails.
+
+## 20. `.dockerignore` excludes bytecode only at the root
+
+**Where:** `.dockerignore`
+
+**Severity: low.** Harmless to production, misleading locally.
+
+`__pycache__/` and `*.pyc` match only at the top of the build context, so a local
+`docker build .` copies every nested `__pycache__` from the working tree into
+the image. Cloud Build starts from a clean checkout, so production images are
+unaffected. But any local measurement of bytecode or cold-start behaviour is
+silently contaminated: the "before" image passes checks it should fail.
+`plans/migrate-slow-tail.md` worked around it by building from `git archive`.
+
+**Fix:** `**/__pycache__/` and `**/*.py[co]`. Not done in that plan to keep its
+deploy to one change.
+
+Found 2026-10-21.
 
 ---
 

@@ -283,8 +283,11 @@ minutes of downtime while we wait for evidence.
       production has one player, no survey criteria and no responses (item 16),
       it almost certainly had nothing to prompt about and sent nothing. The
       scheduled run is no longer missing; whether it had work to do is unknown.
-- [ ] Watch for the next hung start and read the fault handler dump; record what
-      it names in this document
+- [x] Watch for the next hung start and read the fault handler dump; record what
+      it names in this document — **2026-10-21: three dumps, and none shows a
+      hang.** Each landed in a different frame (file read, bytecode compile, app
+      import): a slow tail reaching the 60s limit, not a block. Boots of 48s and
+      58s succeeded. Full analysis in `plans/migrate-slow-tail.md`.
 - [ ] Only then decide the real fix, and write it up — the tiered changes above
       are mitigation and instrumentation, not a cure
 - [ ] Decide on `min_instance_count = 1` (see Decisions #1)

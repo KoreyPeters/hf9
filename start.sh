@@ -25,8 +25,15 @@ litestream restore \
 #   - `set -e` aborts the script, so the container exits and Cloud Run starts a
 #     fresh one. A fast crash and retry beats occupying the whole probe budget.
 #
-# Remove this once the hang is understood and fixed; it is instrumentation
-# around a live fault, not a design. plans/startup-hang-and-503s.md
+# What the dumps actually showed (2026-10-20/21) was not a hang. Each landed in
+# a different frame: reading a source file, compiling one, importing an app. The
+# process was slow everywhere, compiling ~1,100 modules from source because the
+# image shipped no bytecode, and its slow tail had grown into this 60s limit.
+# Boots of 48s and 58s succeeded; the failures were the ones just past them.
+# The Dockerfile now precompiles everything. plans/migrate-slow-tail.md
+#
+# Remove this once a post-deploy measurement shows migrate's tail comfortably
+# under ~5s. It is instrumentation around a live fault, not a design.
 timeout -s ABRT 60 python manage.py migrate --noinput
 python manage.py ensure_superuser
 
